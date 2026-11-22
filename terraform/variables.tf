@@ -18,9 +18,9 @@ variable "cluster_name" {
   default = "delivery"
 }
 
-variable "authorized_cidr" {
-  description = "CIDR allowed to reach the GKE control plane (your public IP/32, or your ISP's block behind CGNAT)."
-  type        = string
+variable "authorized_cidrs" {
+  description = "CIDRs allowed to reach the GKE control plane (your public IP/32; behind CGNAT list the ISP blocks you move between)."
+  type        = list(string)
 }
 
 variable "github_repo" {

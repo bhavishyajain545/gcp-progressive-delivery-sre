@@ -1,6 +1,6 @@
 project_id      = "my-delivery-project"
 region          = "us-central1"
 zone            = "us-central1-a"
-authorized_cidr = "203.0.113.4/32" # curl -s https://api.ipify.org ; behind CGNAT use your ISP's block
+authorized_cidrs = ["203.0.113.4/32"] # curl -s https://api.ipify.org ; behind CGNAT list your ISP's blocks
 github_repo     = "your-github-user/gcp-progressive-delivery-sre"
 alert_email     = "you@example.com"

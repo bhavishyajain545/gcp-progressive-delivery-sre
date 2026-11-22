@@ -30,9 +30,12 @@ resource "google_container_cluster" "delivery" {
   }
 
   master_authorized_networks_config {
-    cidr_blocks {
-      cidr_block   = var.authorized_cidr
-      display_name = "operator"
+    dynamic "cidr_blocks" {
+      for_each = var.authorized_cidrs
+      content {
+        cidr_block   = cidr_blocks.value
+        display_name = "operator-${cidr_blocks.key}"
+      }
     }
     gcp_public_cidrs_access_enabled = true # Cloud Deploy's default execution pool (Cloud Build) reaches the control plane from Google IPs
   }
