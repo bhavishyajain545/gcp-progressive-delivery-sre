@@ -126,6 +126,8 @@ for 30 days. The empty project costs nothing.
 - The in-cluster verify Job runs in the target namespace, which is at Pod Security `restricted` and default-deny:
   without a compliant Job template (`verify/job.yaml`, `jobManifestPath`) its pods are rejected, and without its own
   egress NetworkPolicy (DNS + app pods) its curl loop hangs. Both leave the rollout waiting; verify needs a timeout.
+- The automation's service account needs `roles/clouddeploy.releaser` and `iam.serviceAccountUser` on the execution
+  SA (itself here), or every automation run fails with "ActAs permissions required" and nothing promotes.
 - The Cloud Deploy service agent must be able to act as the execution service account
   (`roles/iam.serviceAccountUser` for `service-<number>@gcp-sa-clouddeploy.iam.gserviceaccount.com`).
 - `gcloud beta container binauthz attestations sign-and-create` needs the `beta` component and

@@ -29,6 +29,20 @@ resource "google_service_account_iam_member" "deploy_actas_self" {
   depends_on         = [google_project_service.apis]
 }
 
+# The automation runs as sa-deploy and creates rollouts (promote, advance, rollback): that needs
+# the releaser role and permission to act as the targets' execution SA, which is sa-deploy itself.
+resource "google_project_iam_member" "deploy_releaser" {
+  project = var.project_id
+  role    = "roles/clouddeploy.releaser"
+  member  = google_service_account.deploy.member
+}
+
+resource "google_service_account_iam_member" "deploy_actas_itself" {
+  service_account_id = google_service_account.deploy.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = google_service_account.deploy.member
+}
+
 # ---------------------------------------------------------------------------
 # CI identity (GitHub Actions via WIF): build, push, SIGN, ATTEST, create release.
 # ---------------------------------------------------------------------------
