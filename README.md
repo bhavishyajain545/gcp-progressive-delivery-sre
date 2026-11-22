@@ -58,7 +58,7 @@ app/                 Go service + tests, distroless Dockerfile; FAIL_RATE / EXTR
 k8s/common/          deployment (from-param placeholders), service, hpa, pdb, networkpolicy, podmonitoring, serviceaccount
 k8s/namespaces/      dev/staging/prod namespaces (Pod Security restricted), applied by deploy.sh, not by releases
 k8s/envs/<env>/      per-target extras; prod adds Gateway + HTTPRoute + HealthCheckPolicy
-skaffold.yaml        rawYaml per profile, kubectl deployer, in-cluster verify Job (curl-based checks)
+skaffold.yaml        rawYaml per profile, kubectl deployer, in-cluster verify Job (curl-based checks; template verify/job.yaml)
 terraform/           apis, vpc(+NAT), gke (Standard zonal, BinAuthz enforce, Dataplane V2, WI, GMP, Gateway API), registry+firestore,
                      binauthz (KMS key, note, attestor, policy), clouddeploy (3 targets, pipeline, automation), iam (app, deploy,
                      CI via WIF, build, postmortem), logging (sink → BigQuery), monitoring (2 SLOs, burn alerts, dashboard), outputs

@@ -204,7 +204,7 @@
   <div class="grid" id="lessons-grid">
     <div class="card"><b>Kustomize strips comments</b><p>Cloud Deploy substitutes deploy parameters where it finds <code># from-param</code> in the <em>rendered</em> manifest. Kustomize drops every comment, so the placeholders vanished and the bad release was never bad. Raw YAML per Skaffold profile fixed it.</p></div>
     <div class="card"><b>Admission applies to everything</b><p>Binary Authorization denied the verify Job's curl image and Chaos Mesh's daemon before they were allow-listed. "Only attested images" means exactly that.</p></div>
-    <div class="card"><b>Verify needs a network path</b><p>The in-cluster verify Job runs in <code>default</code>; the default-deny NetworkPolicy had to admit that namespace or verification timed out and the rollout failed for the wrong reason.</p></div>
+    <div class="card"><b>Verify pods are pods too</b><p>The in-cluster verify Job runs in the target namespace, which is Pod Security <em>restricted</em>: its pods were rejected until the Job got a compliant template (<code>verify/job.yaml</code>). The rollout just sat there, which is also a lesson about timeouts.</p></div>
     <div class="card"><b>Chaos wants Standard</b><p>Autopilot refuses privileged DaemonSets, so Chaos Mesh needs GKE Standard; zonal keeps the management fee at zero anyway.</p></div>
     LESSONS_MORE
   </div>

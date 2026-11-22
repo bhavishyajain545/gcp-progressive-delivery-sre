@@ -33,8 +33,8 @@ profiles:
     deploy:
       kubectl:
         defaultNamespace: prod
-# Verification runs as a Job inside the cluster (not on the Cloud Build worker), so it
-# can hit the ClusterIP Service of the target namespace. During a prod canary phase the
+# Verification runs as a Job inside the cluster, in the target namespace (not on the Cloud
+# Build worker), so it can hit the ClusterIP Service directly. During a prod canary phase the
 # canary pods are reachable through the "orders-api-canary" Service Cloud Deploy creates;
 # the checks prefer it so a bad canary fails verification before it gets more traffic.
 verify:
@@ -68,4 +68,5 @@ verify:
           awk -v p="$P95" 'BEGIN { exit (p > 0.3) ? 1 : 0 }' || { echo "verify: FAIL p95 latency"; exit 1; }
           echo "verify: PASS"
     executionMode:
-      kubernetesCluster: {}
+      kubernetesCluster:
+        jobManifestPath: verify/job.yaml   # restricted-PSS-compliant Job template

@@ -1,0 +1,41 @@
+# Template for the in-cluster verify Job (skaffold.yaml: executionMode.kubernetesCluster.jobManifestPath).
+# Skaffold replaces the container named "checks" with the verify container; the pod-level and
+# container-level securityContext here satisfy the namespaces' Pod Security "restricted" policy,
+# which otherwise rejects the Job's pods and leaves the rollout waiting forever.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: canary-checks
+  labels:
+    app: verify
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        app: verify
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: checks
+          image: curlimages/curl:8.11.1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
