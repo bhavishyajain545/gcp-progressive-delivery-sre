@@ -25,7 +25,7 @@ every resource; keyless from CI to pod.
 | 2 build | `go test`, `docker build`, push; the **digest** is the identity from here on | `.github/workflows/release.yml` |
 | 3 sign | `gcloud beta container binauthz attestations sign-and-create` with the KMS key version (EC P-256) | workflow · `terraform/binauthz.tf` |
 | 4 scan | Artifact Analysis scans on push (vulnerability occurrences next to the attestation) | `terraform/apis.tf` |
-| 5 release | `gcloud deploy releases create … --images orders-api=<digest> --deploy-parameters FAIL_RATE=…` | workflow · `deploy.sh release` |
+| 5 release | `gcloud deploy releases create … --images <full image name>=<digest> --deploy-parameters FAIL_RATE=…` | workflow · `deploy.sh release` |
 | 6 dev → staging | standard strategy + **verify** (in-cluster Job: 80 POSTs, ≤1 failure, p95 ≤ 300 ms); automation promotes after 60 s | `skaffold.yaml` · `terraform/clouddeploy.tf` |
 | 7-8 prod canary | Cloud Deploy creates `orders-api-canary`, sets HTTPRoute weights 25% then 50%, verifies the **canary Service** at each phase | same |
 | 9 stable | 100%, canary resources removed; a failed verify triggers the **repair rule: rollback** | same |

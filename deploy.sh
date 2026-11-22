@@ -28,7 +28,7 @@ build_sign_release() {  # TAG FAIL_RATE
   local NAME="rel-${TAG}-$(date -u +%H%M%S)"; [[ "$FAIL_RATE" != "0" ]] && NAME="bad-${NAME}"
   echo "== Cloud Deploy release ${NAME} (FAIL_RATE=${FAIL_RATE})"
   gcloud deploy releases create "$NAME" --project "$PROJECT_ID" --region "$REGION" \
-    --delivery-pipeline "$(tf_out pipeline)" --images "orders-api=${IMAGE}@${DIGEST}" \
+    --delivery-pipeline "$(tf_out pipeline)" --images "${IMAGE}=${IMAGE}@${DIGEST}" \
     --deploy-parameters="FAIL_RATE=${FAIL_RATE},EXTRA_LATENCY_MS=0" --skaffold-file skaffold.yaml --source . --quiet
   echo "$NAME"
 }

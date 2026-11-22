@@ -109,6 +109,11 @@ for 30 days. The empty project costs nothing.
 
 ## Gotchas met while building
 
+- `--images` keys must be the image name exactly as the manifests reference it (`us-central1-docker.pkg.dev/…/orders-api`),
+  not a short alias. With `orders-api=…` Skaffold changed nothing, the pod referenced an un-pinned image and Binary
+  Authorization denied it: a correct denial for the wrong reason.
+- The operator's ISP moved the public IP to another /16 mid-build; `authorized_cidrs` is a list for that reason.
+
 - A Namespace rendered in the same release as the objects inside it races `kubectl apply` ("namespaces dev not
   found") and the first rollout fails. Namespaces live in `k8s/namespaces/` and are applied by `deploy.sh`.
 

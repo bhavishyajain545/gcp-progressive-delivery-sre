@@ -1,4 +1,7 @@
-# The delivery track, from GitHub's side: test → build → push (by digest) → sign
+# The delivery track, from GitHub's side. Note the --images key: it must be the image name exactly as
+# the manifests reference it (full registry path), or Skaffold leaves the manifest untouched and the
+# cluster sees an un-pinned, un-attested image (Binary Authorization then denies the pod).
+# test → build → push (by digest) → sign
 # the digest with Cloud KMS → Binary Authorization attestation → Cloud Deploy
 # release. Everything after that (dev → staging → prod canary, verification,
 # rollback) is Cloud Deploy + its automation. Auth is keyless (OIDC → WIF).
@@ -93,7 +96,7 @@ jobs:
           gcloud deploy releases create "$NAME" \
             --project="$PROJECT_ID" --region="$REGION" \
             --delivery-pipeline="$PIPELINE" \
-            --images="orders-api=${{ steps.build.outputs.digest }}" \
+            --images="${IMAGE}=${{ steps.build.outputs.digest }}" \
             --deploy-parameters="FAIL_RATE=${FAIL_RATE},EXTRA_LATENCY_MS=${LAT}" \
             --skaffold-file=skaffold.yaml --source=. \
             --annotations="commit=${GITHUB_SHA},workflow=${GITHUB_RUN_ID}"
