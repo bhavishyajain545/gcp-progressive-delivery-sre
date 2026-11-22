@@ -41,11 +41,14 @@ case "$MODE" in
 esac
 
 echo "== 1/6 terraform apply (the two SLOs fail until prod has served traffic: expected, see ./deploy.sh slo)"
+# Cloud Deploy's service agent must exist before Terraform can grant it actAs on the execution SA.
+gcloud beta services identity create --service=clouddeploy.googleapis.com --project "$PROJECT_ID" >/dev/null 2>&1 || true
 terraform -chdir=terraform init -input=false >/dev/null
 terraform -chdir=terraform apply -input=false -auto-approve || echo "   (continuing: run './deploy.sh slo' once prod has traffic)"
 
-echo "== 2/6 kubeconfig"
+echo "== 2/6 kubeconfig + namespaces (platform-owned; Cloud Deploy only touches what is inside them)"
 gcloud container clusters get-credentials "$(tf_out cluster_name)" --zone "$ZONE" --project "$PROJECT_ID" >/dev/null
+kubectl apply -f k8s/namespaces/
 
 echo "== 3/6 Chaos Mesh (helm)"
 helm repo add chaos-mesh https://charts.chaos-mesh.org >/dev/null 2>&1 || true

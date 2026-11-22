@@ -54,7 +54,8 @@ resource "google_binary_authorization_attestor" "ci" {
 
 resource "google_binary_authorization_policy" "policy" {
   # Google-managed system images (GKE add-ons) and the Chaos Mesh / Managed Prometheus
-  # images stay deployable; everything else needs our attestation.
+  # images stay deployable; everything else needs our attestation. Patterns need a registry
+  # domain (Kubernetes normalises "curlimages/curl" to docker.io/curlimages/curl).
   admission_whitelist_patterns {
     name_pattern = "gcr.io/google_containers/*"
   }
@@ -86,16 +87,10 @@ resource "google_binary_authorization_policy" "policy" {
     name_pattern = "ghcr.io/chaos-mesh/**"
   }
   admission_whitelist_patterns {
-    name_pattern = "grafana/k6*"
-  }
-  admission_whitelist_patterns {
     name_pattern = "docker.io/grafana/k6*"
   }
   admission_whitelist_patterns {
     name_pattern = "docker.io/curlimages/curl*"
-  }
-  admission_whitelist_patterns {
-    name_pattern = "curlimages/curl*"
   }
 
   global_policy_evaluation_mode = "ENABLE"

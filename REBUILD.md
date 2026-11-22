@@ -109,6 +109,9 @@ for 30 days. The empty project costs nothing.
 
 ## Gotchas met while building
 
+- A Namespace rendered in the same release as the objects inside it races `kubectl apply` ("namespaces dev not
+  found") and the first rollout fails. Namespaces live in `k8s/namespaces/` and are applied by `deploy.sh`.
+
 - **Kustomize strips comments**, so Cloud Deploy's `# from-param: ${X}` placeholders vanished from the rendered
   manifests. The repo renders raw YAML per Skaffold profile instead; `deploy.kubectl.defaultNamespace` picks the namespace.
 - Chaos Mesh needs a privileged DaemonSet → GKE Standard, not Autopilot; on GKE set

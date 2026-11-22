@@ -56,7 +56,8 @@ items). The facts come from the logs; the prose from the model; a human edits be
 ```
 app/                 Go service + tests, distroless Dockerfile; FAIL_RATE / EXTRA_LATENCY_MS fault knobs (business routes only)
 k8s/common/          deployment (from-param placeholders), service, hpa, pdb, networkpolicy, podmonitoring, serviceaccount
-k8s/envs/<env>/      namespace; prod adds Gateway + HTTPRoute + HealthCheckPolicy
+k8s/namespaces/      dev/staging/prod namespaces (Pod Security restricted), applied by deploy.sh, not by releases
+k8s/envs/<env>/      per-target extras; prod adds Gateway + HTTPRoute + HealthCheckPolicy
 skaffold.yaml        rawYaml per profile, kubectl deployer, in-cluster verify Job (curl-based checks)
 terraform/           apis, vpc(+NAT), gke (Standard zonal, BinAuthz enforce, Dataplane V2, WI, GMP, Gateway API), registry+firestore,
                      binauthz (KMS key, note, attestor, policy), clouddeploy (3 targets, pipeline, automation), iam (app, deploy,

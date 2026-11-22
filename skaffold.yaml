@@ -7,6 +7,8 @@ metadata:
   name: orders-api
 # Raw YAML (not kustomize) on purpose: Cloud Deploy substitutes deploy parameters where it finds
 # "# from-param" comments in the rendered manifests, and kustomize strips comments.
+# Namespaces are platform-owned (k8s/namespaces/, applied by deploy.sh), not part of a release:
+# a Namespace created in the same apply as the objects inside it races and the rollout fails.
 manifests:
   rawYaml: ["k8s/common/*.yaml", "k8s/envs/dev/*.yaml"]
 deploy:
