@@ -16,7 +16,7 @@ output "attestor" {
 
 output "kms_key_version" {
   description = "Key version used by `gcloud beta container binauthz attestations sign-and-create`."
-  value       = data.google_kms_crypto_key_version.attestor.id
+  value       = trimprefix(data.google_kms_crypto_key_version.attestor.id, "//cloudkms.googleapis.com/v1/")
 }
 
 output "pipeline" {
