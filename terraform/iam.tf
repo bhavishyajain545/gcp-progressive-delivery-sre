@@ -66,12 +66,35 @@ resource "google_project_iam_member" "ci_roles" {
     "roles/artifactregistry.writer",
     "roles/binaryauthorization.attestorsViewer",
     "roles/containeranalysis.notes.attacher",
+    "roles/containeranalysis.notes.occurrences.viewer", # list the attestation it just created
     "roles/containeranalysis.occurrences.editor",
     "roles/clouddeploy.releaser",
-    "roles/storage.objectAdmin", # release source upload to the Cloud Deploy bucket
   ])
   project = var.project_id
   role    = each.value
+  member  = google_service_account.ci.member
+}
+
+# `gcloud deploy releases create` uploads the source to the Cloud Deploy staging bucket
+# (created by Cloud Deploy, random name) and needs storage.buckets.get on it. A custom
+# role keeps that narrower than roles/storage.admin.
+resource "google_project_iam_custom_role" "release_storage" {
+  role_id     = "deployReleaseStorage"
+  title       = "Cloud Deploy release source upload"
+  description = "Read bucket metadata and manage objects in the Cloud Deploy staging bucket"
+  permissions = [
+    "storage.buckets.get",
+    "storage.buckets.create",
+    "storage.objects.create",
+    "storage.objects.get",
+    "storage.objects.list",
+    "storage.objects.delete",
+  ]
+}
+
+resource "google_project_iam_member" "ci_release_storage" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.release_storage.id
   member  = google_service_account.ci.member
 }
 
