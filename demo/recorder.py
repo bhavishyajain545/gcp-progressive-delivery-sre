@@ -198,8 +198,12 @@ class Demo:
         """Render a terminal-looking page and 'type' real commands with their captured output."""
         assert self.page
         # Leave any CSP/Trusted-Types page (e.g. the Cloud console) before writing our own document.
-        await self.page.goto("about:blank")
-        await self.page.set_content(_terminal_html(title))
+        # A plain goto once hung for 30 s and cost a whole scene; wait only for commit and never let it abort.
+        try:
+            await self.page.goto("about:blank", wait_until="commit", timeout=8000)
+        except Exception as exc:
+            print(f"  ! about:blank: {type(exc).__name__}; continuing with set_content")
+        await self.page.set_content(_terminal_html(title), wait_until="commit")
         for cmd, output in steps:
             await self.page.evaluate("(c) => window.__prompt(c)", "")
             for ch in cmd:
@@ -304,13 +308,32 @@ class Demo:
         cuts: list[tuple[float, float]] = []
         if self.scenes and self.scenes[0].start > 1.0:  # setup time before the first scene (tab pre-loads etc.)
             cuts.append((0.0, self.scenes[0].start - 0.3))
-        for s in self.scenes:
+        for i, s in enumerate(self.scenes):
             keep_until = s.start + s.audio_len + 0.8 + self.max_silence
             resume_at = s.end - self.tail
             if resume_at - keep_until > 0.5:
                 cuts.append((keep_until, resume_at))
+            # waiting BETWEEN scenes (a release building, a rollout progressing) is dead air too
+            if i + 1 < len(self.scenes) and self.scenes[i + 1].start - s.end > 1.5:
+                cuts.append((s.end + 0.3, self.scenes[i + 1].start - 0.3))
         if not cuts:
             return end
+        cuts.sort()
+        # The screencast only emits frames when something changes. If the last change of a scene
+        # happened inside a cut window and nothing moved afterwards, the kept tail would have no
+        # frame of its own and the video would show the pre-change state: re-stamp the newest
+        # frame before each cut's end at the cut's end so the final state survives the cut.
+        frames = sorted(self._frames, key=lambda f: f[0])
+        for a_, b_ in cuts:
+            last = None
+            for t, data in frames:
+                if t < b_:
+                    last = (t, data)
+                else:
+                    break
+            if last is not None and a_ <= last[0] < b_:
+                self._frames.append((b_, last[1]))
+        self._frames.sort(key=lambda f: f[0])
 
         def remap(t: float) -> float | None:
             removed = 0.0

@@ -15,9 +15,14 @@ kind: NetworkPolicy
 metadata:
   name: orders-api
 spec:
+  # Cloud Deploy's canary relabels the canary pods app=orders-api-canary (pod_selector_label);
+  # a selector on app=orders-api alone left them under default-deny: no metadata server, no
+  # Firestore, crash at start-up, canary phase failed on a perfectly good release.
   podSelector:
-    matchLabels:
-      app: orders-api
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["orders-api", "orders-api-canary"]
   policyTypes: ["Ingress", "Egress"]
   ingress:
     - from:
@@ -71,8 +76,10 @@ spec:
           protocol: TCP
     - to:
         - podSelector:
-            matchLabels:
-              app: orders-api
+            matchExpressions:
+              - key: app
+                operator: In
+                values: ["orders-api", "orders-api-canary"]
       ports:
         - port: 8080
           protocol: TCP

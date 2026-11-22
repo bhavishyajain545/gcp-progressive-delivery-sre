@@ -109,6 +109,10 @@ for 30 days. The empty project costs nothing.
 
 ## Gotchas met while building
 
+- Cloud Deploy's Gateway API canary relabels the canary pods (`app: orders-api-canary`). A NetworkPolicy or
+  PodMonitoring selecting `app=orders-api` alone leaves the canary pods under default-deny: no metadata server,
+  no Firestore, crash at start-up, canary phase FAILED on a healthy release. Select both labels.
+
 - `--images` keys must be the image name exactly as the manifests reference it (`us-central1-docker.pkg.dev/…/orders-api`),
   not a short alias. With `orders-api=…` Skaffold changed nothing, the pod referenced an un-pinned image and Binary
   Authorization denied it: a correct denial for the wrong reason.

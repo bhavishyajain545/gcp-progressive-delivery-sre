@@ -183,6 +183,10 @@ async def main() -> None:
         await page.goto((ROOT / "docs" / "architecture.html").as_uri())
         await page.evaluate("() => { document.body.style.zoom = '1.33'; document.body.style.margin = '0'; }")
     await demo.scene("Architecture", NARRATION["arch"], s1)
+    try:
+        await page.evaluate("() => { const st = document.createElement('style'); st.textContent = '*{animation:none!important}'; document.head.appendChild(st); }")
+    except Exception:
+        pass
 
     # ---- 2 Binary Authorization ----
     async def s2():
@@ -209,7 +213,7 @@ async def main() -> None:
              lambda: wsl(f"for i in $(seq 1 30); do curl -s --max-time 10 -o /dev/null -w '%{{http_code}}\\n' -X POST {api}/orders -H 'content-type: application/json' -d '{{\"item\":\"gameday-'$i'\",\"qty\":1}}'; done | sort | uniq -c", timeout=400)),
             ("kubectl -n prod get pdb,hpa", lambda: wsl("kubectl -n prod get pdb,hpa; kubectl delete -f chaos/pod-kill.yaml >/dev/null 2>&1")),
         ], type_delay=5)
-    await demo.scene("Game day: pod-kill", NARRATION["podkill"], s3, hold=1.0)
+    await demo.scene("Game day 1 pod-kill", NARRATION["podkill"], s3, hold=1.0)
 
     # ---- 4 the release ----
     if not good_task.done():
@@ -248,17 +252,23 @@ async def main() -> None:
     # ---- 6 prod canary ----
     async def s6():
         await demo.terminal("Prod canary: 25% → 50% → 100% on Gateway API weights", [])
-        # wait for the prod rollout to be in a canary phase
+        # wait for the prod rollout to be in a canary phase AND the canary to carry traffic weight
         for _ in range(60):
             st = rollouts(rel)
             if "prod" in st and ("IN_PROGRESS" in st.split("prod")[-1] or "SUCCEEDED" in st.split("prod")[-1]):
                 break
             await asyncio.sleep(5)
+        for _ in range(60):
+            w = wsl("kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight} {end}'")
+            ready = wsl("kubectl -n prod get deploy orders-api-canary -o jsonpath='{.status.availableReplicas}' 2>/dev/null")
+            if "canary" in w and ready not in ("", "0"):
+                break
+            await asyncio.sleep(5)
         await live_steps(page, [
             (f"gcloud deploy rollouts list --delivery-pipeline {PIPELINE} --release {rel}", lambda: rollouts(rel)),
             ("kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight}{\"\\n\"}{end}'",
-             lambda: wsl("for i in $(seq 1 12); do W=$(kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight}{\"\\n\"}{end}'); echo \"$W\" | grep -q canary && break; sleep 5; done; echo \"$W\"", timeout=120)),
-            ("kubectl -n prod get deploy,svc -l app=orders-api", lambda: wsl("kubectl -n prod get deploy,svc 2>&1 | grep -E 'NAME|orders-api'")),
+             lambda: wsl("kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight}{\"\\n\"}{end}'")),
+            ("kubectl -n prod get deploy,svc,pods -L app | grep -E 'NAME|orders'", lambda: wsl("kubectl -n prod get deploy,svc,pods -L app 2>&1 | grep -E 'NAME|orders' | cut -c1-130")),
             ("kubectl -n prod get jobs,pods -l app=verify   # the verify Job Cloud Deploy runs in-cluster", lambda: wsl("kubectl -n prod get jobs,pods -l app=verify 2>&1 | tail -4")),
         ], type_delay=5)
     await demo.scene("Prod canary", NARRATION["canary"], s6, hold=1.0)
@@ -284,7 +294,7 @@ async def main() -> None:
             await dash_tab.reload(wait_until="commit")
             await demo.capture(dash_tab)
             await asyncio.sleep(12)
-    await demo.scene("Game day: network delay", NARRATION["netdelay"], s7, hold=1.5)
+    await demo.scene("Game day 2 network delay", NARRATION["netdelay"], s7, hold=1.5)
     if use_cdp:
         await demo.capture(page)
 

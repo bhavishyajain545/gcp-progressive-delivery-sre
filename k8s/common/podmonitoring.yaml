@@ -4,8 +4,10 @@ metadata:
   name: orders-api
 spec:
   selector:
-    matchLabels:
-      app: orders-api
+    matchExpressions:   # stable and canary pods (Cloud Deploy relabels the canary)
+      - key: app
+        operator: In
+        values: ["orders-api", "orders-api-canary"]
   endpoints:
     - port: http
       path: /metrics
