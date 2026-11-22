@@ -1,0 +1,17 @@
+# Game day 1: kill half of prod's pods. Expect: the PDB and HPA keep at least one
+# pod serving, the Gateway health check drops the dead backends within 10 s, no
+# 5xx at the edge, the availability SLO does not move.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: orders-pod-kill
+  namespace: chaos-mesh
+spec:
+  action: pod-kill
+  mode: fixed-percent
+  value: "50"
+  selector:
+    namespaces: ["prod"]
+    labelSelectors:
+      app: orders-api
+  gracePeriod: 0

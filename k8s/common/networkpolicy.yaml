@@ -1,0 +1,56 @@
+# Default deny, then explicit allows. Ingress: Google front ends (Gateway), the
+# Managed Prometheus collector, pods in the same namespace (canary <-> stable) and
+# the verify Jobs Cloud Deploy runs in the default namespace. Egress: DNS, the GKE
+# metadata server (Workload Identity) and Google APIs on 443 (Firestore).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orders-api
+spec:
+  podSelector:
+    matchLabels:
+      app: orders-api
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - ipBlock: { cidr: 130.211.0.0/22 }
+        - ipBlock: { cidr: 35.191.0.0/16 }
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gmp-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+        - podSelector: {}
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock: { cidr: 169.254.169.254/32 }
+        - ipBlock: { cidr: 169.254.169.252/32 }
+      ports:
+        - port: 80
+          protocol: TCP
+        - port: 988
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+      ports:
+        - port: 443
+          protocol: TCP

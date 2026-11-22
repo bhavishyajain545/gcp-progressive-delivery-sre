@@ -1,0 +1,22 @@
+# Game day 2: add 300 ms on every egress packet from prod pods (Firestore round
+# trips included) for two minutes. Expect: p95 crosses 300 ms, the latency SLO
+# burns, the fast-burn alert fires, availability stays green.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: orders-datastore-delay
+  namespace: chaos-mesh
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces: ["prod"]
+    labelSelectors:
+      app: orders-api
+  direction: to
+  externalTargets: ["firestore.googleapis.com"]
+  delay:
+    latency: "300ms"
+    jitter: "50ms"
+    correlation: "25"
+  duration: "120s"

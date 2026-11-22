@@ -1,0 +1,69 @@
+# Rendered and applied by Cloud Deploy (one profile per target). The image tag is
+# supplied by the release (--images orders-api=<registry>/orders-api@sha256:…), so
+# what runs is exactly the digest that was signed and attested.
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: orders-api
+# Raw YAML (not kustomize) on purpose: Cloud Deploy substitutes deploy parameters where it finds
+# "# from-param" comments in the rendered manifests, and kustomize strips comments.
+manifests:
+  rawYaml: ["k8s/common/*.yaml", "k8s/envs/dev/*.yaml"]
+deploy:
+  kubectl:
+    defaultNamespace: dev
+profiles:
+  - name: dev
+    manifests:
+      rawYaml: ["k8s/common/*.yaml", "k8s/envs/dev/*.yaml"]
+    deploy:
+      kubectl:
+        defaultNamespace: dev
+  - name: staging
+    manifests:
+      rawYaml: ["k8s/common/*.yaml", "k8s/envs/staging/*.yaml"]
+    deploy:
+      kubectl:
+        defaultNamespace: staging
+  - name: prod
+    manifests:
+      rawYaml: ["k8s/common/*.yaml", "k8s/envs/prod/*.yaml"]
+    deploy:
+      kubectl:
+        defaultNamespace: prod
+# Verification runs as a Job inside the cluster (not on the Cloud Build worker), so it
+# can hit the ClusterIP Service of the target namespace. During a prod canary phase the
+# canary pods are reachable through the "orders-api-canary" Service Cloud Deploy creates;
+# the checks prefer it so a bad canary fails verification before it gets more traffic.
+verify:
+  - name: canary-checks
+    container:
+      name: checks
+      image: curlimages/curl:8.11.1
+      command: ["sh", "-c"]
+      args:
+        - |
+          set -u
+          NS="${CLOUD_DEPLOY_TARGET:-dev}"
+          PHASE="${CLOUD_DEPLOY_PHASE:-}"
+          HOST="orders-api.${NS}.svc.cluster.local"
+          if [ "$NS" = "prod" ] && [ "$PHASE" != "stable" ] && curl -sf -m 3 "http://orders-api-canary.${NS}.svc.cluster.local/healthz" >/dev/null 2>&1; then
+            HOST="orders-api-canary.${NS}.svc.cluster.local"
+          fi
+          echo "verify: target=$NS phase=${PHASE:-n/a} host=$HOST"
+          N=80; FAIL=0; : > /tmp/t
+          for i in $(seq 1 $N); do
+            OUT=$(curl -s -m 5 -o /dev/null -w '%{http_code} %{time_total}' -X POST "http://$HOST/orders" -H 'content-type: application/json' -d "{\"item\":\"verify-$i\",\"qty\":1}")
+            CODE=${OUT%% *}; T=${OUT##* }
+            echo "$T" >> /tmp/t
+            case "$CODE" in 2*) ;; *) FAIL=$((FAIL+1));; esac
+          done
+          P95=$(sort -n /tmp/t | awk '{a[NR]=$1} END {print a[int(NR*0.95)]}')
+          curl -s -m 5 "http://$HOST/version"; echo
+          echo "verify: requests=$N failures=$FAIL p95=${P95}s"
+          # Gates mirror the SLOs: >2% errors or p95 > 300 ms fails the rollout.
+          [ "$FAIL" -le 1 ] || { echo "verify: FAIL error rate"; exit 1; }
+          awk -v p="$P95" 'BEGIN { exit (p > 0.3) ? 1 : 0 }' || { echo "verify: FAIL p95 latency"; exit 1; }
+          echo "verify: PASS"
+    executionMode:
+      kubernetesCluster: {}

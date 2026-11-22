@@ -1,0 +1,10 @@
+# Chaos Mesh pod-kill and node upgrades can take at most one pod at a time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orders-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: orders-api

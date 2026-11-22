@@ -1,0 +1,100 @@
+# The delivery track, from GitHub's side: test → build → push (by digest) → sign
+# the digest with Cloud KMS → Binary Authorization attestation → Cloud Deploy
+# release. Everything after that (dev → staging → prod canary, verification,
+# rollback) is Cloud Deploy + its automation. Auth is keyless (OIDC → WIF).
+#
+# "Run workflow" with fail_rate=0.5 ships a deliberately bad release so the
+# pipeline can be watched catching it.
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "k8s/**", "skaffold.yaml", ".github/workflows/release.yml"]
+  pull_request:
+    paths: ["app/**"]
+  workflow_dispatch:
+    inputs:
+      fail_rate:
+        description: "FAIL_RATE deploy parameter (0 = healthy release, 0.5 = bad release drill)"
+        default: "0"
+      extra_latency_ms:
+        description: "EXTRA_LATENCY_MS deploy parameter"
+        default: "0"
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: bj-progressive-delivery
+  REGION: us-central1
+  IMAGE: us-central1-docker.pkg.dev/bj-progressive-delivery/apps/orders-api
+  ATTESTOR: delivery-ci-attestor
+  KEY_VERSION: projects/bj-progressive-delivery/locations/us-central1/keyRings/delivery-signing/cryptoKeys/attestor-key/cryptoKeyVersions/1
+  PIPELINE: orders-api
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+      - run: go vet ./... && go test -count=1 -race ./...
+        working-directory: app
+
+  release:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: sa-github-ci@bj-progressive-delivery.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: beta
+      - run: gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
+
+      - name: Build and push (digest is the identity)
+        id: build
+        run: |
+          TAG="sha-${GITHUB_SHA::7}"
+          docker build --build-arg VERSION="$TAG" -t "$IMAGE:$TAG" app
+          docker push "$IMAGE:$TAG"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "built $DIGEST"
+
+      - name: Sign the digest and create the Binary Authorization attestation
+        run: |
+          gcloud beta container binauthz attestations sign-and-create \
+            --project="$PROJECT_ID" \
+            --artifact-url="${{ steps.build.outputs.digest }}" \
+            --attestor="$ATTESTOR" --attestor-project="$PROJECT_ID" \
+            --keyversion="$KEY_VERSION"
+          gcloud beta container binauthz attestations list --attestor="$ATTESTOR" --attestor-project="$PROJECT_ID" \
+            --artifact-url="${{ steps.build.outputs.digest }}" --format='value(name)' | head -1
+
+      - name: Create the Cloud Deploy release
+        run: |
+          FAIL_RATE="${{ github.event.inputs.fail_rate || '0' }}"
+          LAT="${{ github.event.inputs.extra_latency_ms || '0' }}"
+          NAME="rel-${{ steps.build.outputs.tag }}-$(date -u +%H%M%S)"
+          [ "$FAIL_RATE" != "0" ] && NAME="bad-${NAME}"
+          gcloud deploy releases create "$NAME" \
+            --project="$PROJECT_ID" --region="$REGION" \
+            --delivery-pipeline="$PIPELINE" \
+            --images="orders-api=${{ steps.build.outputs.digest }}" \
+            --deploy-parameters="FAIL_RATE=${FAIL_RATE},EXTRA_LATENCY_MS=${LAT}" \
+            --skaffold-file=skaffold.yaml --source=. \
+            --annotations="commit=${GITHUB_SHA},workflow=${GITHUB_RUN_ID}"
+          echo "release $NAME created; the automation promotes it through dev → staging → prod canary"

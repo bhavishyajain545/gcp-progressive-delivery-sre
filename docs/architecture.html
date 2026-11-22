@@ -1,0 +1,115 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Architecture: Progressive delivery with guardrails</title>
+<style>
+  :root{--bg:#0b1020;--grid:#141b33;--ink:#e8edf7;--muted:#9aa8c7;--blue:#4c8dff;--amber:#fbbf24;--red:#fb7185;--purple:#c084fc;--green:#34d399;--panel:#121a30;--line:#263157}
+  body{margin:0;background:var(--bg);font-family:Inter,"Segoe UI",Arial,sans-serif;color:var(--ink)}
+  .canvas{width:1400px;height:800px;position:relative;overflow:hidden;box-sizing:border-box;
+    background:
+      radial-gradient(1200px 500px at 70% -10%, rgba(76,141,255,.18), transparent 60%),
+      radial-gradient(800px 400px at 10% 110%, rgba(251,113,133,.12), transparent 60%),
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0/40px 40px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/40px 40px, var(--bg)}
+  h1{position:absolute;left:36px;top:24px;margin:0;font-size:26px;letter-spacing:-.01em}
+  .sub{position:absolute;left:36px;top:58px;color:var(--muted);font-size:14px}
+  .lane{position:absolute;border-radius:14px;border:1px solid var(--line);background:rgba(18,26,48,.5)}
+  .lane label{position:absolute;left:14px;top:-11px;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line)}
+  .card{position:absolute;border-radius:12px;padding:8px 11px;box-sizing:border-box;background:var(--panel);border:1px solid var(--line);box-shadow:0 8px 24px rgba(0,0,0,.35)}
+  .card b{display:block;font-size:13px;margin-bottom:2px}
+  .card span{font-size:11px;color:var(--muted);line-height:1.32;display:block}
+  .c-blue{border-color:rgba(76,141,255,.65)} .c-amber{border-color:rgba(251,191,36,.65)} .c-red{border-color:rgba(251,113,133,.65)} .c-purple{border-color:rgba(192,132,252,.65)} .c-green{border-color:rgba(52,211,153,.65)}
+  .station{position:absolute;width:20px;height:20px;border-radius:50%;background:var(--bg);border:4px solid var(--blue);box-sizing:border-box;box-shadow:0 0 0 4px rgba(76,141,255,.18)}
+  .station.g{border-color:var(--amber);box-shadow:0 0 0 4px rgba(251,191,36,.2)}
+  .station.p{border-color:var(--green);box-shadow:0 0 0 4px rgba(52,211,153,.2)}
+  .tag{display:inline-block;font-size:10px;padding:1px 7px;border-radius:6px;margin-top:3px;font-weight:600}
+  .t-blue{background:rgba(76,141,255,.18);color:#9cc0ff} .t-amber{background:rgba(251,191,36,.18);color:#fde68a} .t-red{background:rgba(251,113,133,.18);color:#fecdd3} .t-purple{background:rgba(192,132,252,.18);color:#e9d5ff} .t-green{background:rgba(52,211,153,.18);color:#a7f3d0}
+  svg.wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .flow{stroke-dasharray:6 10;animation:dash 1.6s linear infinite}
+  @keyframes dash{to{stroke-dashoffset:-32}}
+  .pct{position:absolute;font-size:11px;font-weight:700;color:var(--green)}
+  .foot{position:absolute;left:36px;bottom:12px;color:var(--muted);font-size:11.5px}
+  .tick{position:absolute;width:2px;height:14px;background:var(--line)}
+</style></head>
+<body><div class="canvas">
+  <h1>Progressive delivery with guardrails: Cloud Deploy canary, Binary Authorization, Chaos Mesh</h1>
+  <div class="sub">Project bj-progressive-delivery · a commit rides one track from build to 100% of production, and every station can stop it · Terraform-provisioned, keyless</div>
+
+  <!-- ================= LANE 1: delivery track (y=222) ================= -->
+  <div class="lane" style="left:36px;top:96px;width:1328px;height:258px"><label style="color:var(--blue)">Delivery track · one commit, end to end</label></div>
+
+  <svg class="wires">
+    <defs>
+      <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#fb7185"/></marker>
+      <marker id="ap" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#c084fc"/></marker>
+      <marker id="ag" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#34d399"/></marker>
+      <linearGradient id="track" x1="0" x2="1"><stop offset="0" stop-color="#4c8dff"/><stop offset=".5" stop-color="#fbbf24"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+    </defs>
+    <!-- main track -->
+    <path d="M70,222 H1330" stroke="url(#track)" stroke-width="6" fill="none" stroke-linecap="round" opacity=".9"/>
+    <path d="M70,222 H1330" stroke="#ffffff" stroke-width="2" fill="none" class="flow" opacity=".75"/>
+    <!-- connectors station -> card -->
+    <g stroke="#263157" stroke-width="2">
+      <path d="M106,212 V196"/><path d="M266,232 V248"/><path d="M430,212 V196"/><path d="M600,232 V248"/><path d="M770,212 V196"/><path d="M910,232 V248"/><path d="M1050,212 V196"/><path d="M1180,232 V248"/><path d="M1306,212 V196"/>
+    </g>
+    <!-- rollback loop: canary 50% back to the track before prod -->
+    <path d="M1180,236 C1180,290 1000,290 975,236" stroke="#fb7185" stroke-width="2.2" fill="none" marker-end="url(#ar)" stroke-dasharray="4 4"/>
+    <text x="996" y="346" fill="#fecdd3" font-size="11" font-weight="600">verify fails → automation rolls back</text>
+    <!-- chaos lane -> prod pods -->
+    <path d="M598,470 C640,470 660,470 696,470" stroke="#fb7185" stroke-width="2.4" fill="none" marker-end="url(#ar)" class="flow"/>
+    <!-- SLO signal: monitoring -> verify gate at canary 25% -->
+    <path d="M1255,420 C1255,392 1215,380 1190,350" stroke="#34d399" stroke-width="2" fill="none" marker-end="url(#ag)" stroke-dasharray="3 4" class="flow"/>
+    <text x="1262" y="372" fill="#a7f3d0" font-size="11" font-weight="600">SLO + k6 verdict</text>
+    <!-- logs -> learning loop -->
+    <path d="M1240,538 C1240,580 300,560 180,606" stroke="#c084fc" stroke-width="2" fill="none" marker-end="url(#ap)" stroke-dasharray="3 4" class="flow"/>
+    <path d="M300,660 H336" stroke="#c084fc" stroke-width="2" fill="none" marker-end="url(#ap)"/>
+    <path d="M520,660 H556" stroke="#c084fc" stroke-width="2" fill="none" marker-end="url(#ap)"/>
+    <path d="M820,660 H856" stroke="#c084fc" stroke-width="2" fill="none" marker-end="url(#ap)"/>
+    <path d="M1010,660 H1046" stroke="#c084fc" stroke-width="2" fill="none" marker-end="url(#ap)"/>
+  </svg>
+
+  <!-- stations on the track -->
+  <div class="station" style="left:96px;top:212px"></div>
+  <div class="station" style="left:256px;top:212px"></div>
+  <div class="station g" style="left:420px;top:212px"></div>
+  <div class="station g" style="left:590px;top:212px"></div>
+  <div class="station" style="left:760px;top:212px"></div>
+  <div class="station g" style="left:900px;top:212px"></div>
+  <div class="station p" style="left:1040px;top:212px"></div>
+  <div class="station p" style="left:1170px;top:212px"></div>
+  <div class="station p" style="left:1296px;top:212px"></div>
+  <div class="pct" style="left:1032px;top:236px">25%</div><div class="pct" style="left:1162px;top:236px">50%</div><div class="pct" style="left:1286px;top:236px">100%</div>
+
+  <!-- cards above the track (top 108, bottom <= 196) -->
+  <div class="card c-blue" style="left:46px;top:112px;width:140px"><b>1 · git push</b><span>orders-api (Go), k8s manifests, skaffold.yaml</span><i class="tag t-blue">GitHub</i></div>
+  <div class="card c-amber" style="left:352px;top:108px;width:172px"><b>3 · Sign the digest</b><span>Cloud KMS asymmetric key → Binary Authorization attestation</span><i class="tag t-amber">supply chain</i></div>
+  <div class="card c-blue" style="left:686px;top:108px;width:182px"><b>5 · Cloud Deploy release</b><span>pipeline dev → staging → prod; Skaffold renders per target</span><i class="tag t-blue">releases create</i></div>
+  <div class="card c-green" style="left:976px;top:108px;width:150px"><b>7 · prod canary 25%</b><span>Gateway API HTTPRoute weighted split</span><i class="tag t-green">verify: k6 + SLO</i></div>
+  <div class="card c-green" style="left:1236px;top:112px;width:122px"><b>9 · stable 100%</b><span>old ReplicaSet scaled down</span><i class="tag t-green">done</i></div>
+
+  <!-- cards below the track (top 248) -->
+  <div class="card c-blue" style="left:186px;top:248px;width:170px"><b>2 · Cloud Build</b><span>go test · docker build · push to Artifact Registry; trigger on main</span><i class="tag t-blue">keyless, sa-build</i></div>
+  <div class="card c-amber" style="left:520px;top:248px;width:170px"><b>4 · Scan</b><span>Artifact Analysis vulnerability scan; build fails above HIGH</span><i class="tag t-amber">guardrail</i></div>
+  <div class="card c-amber" style="left:826px;top:248px;width:160px"><b>6 · dev → staging</b><span>auto-promote after a smoke verify; attested digests only</span><i class="tag t-amber">BinAuthz gate</i></div>
+  <div class="card c-green" style="left:1116px;top:248px;width:120px"><b>8 · canary 50%</b><span>second verify; optional approval</span><i class="tag t-green">phase gate</i></div>
+
+  <!-- ================= LANE 2: game day (left) and runtime (right), y 380-560 ================= -->
+  <div class="lane" style="left:36px;top:380px;width:574px;height:180px"><label style="color:var(--red)">Game day · Chaos Mesh experiments</label></div>
+  <div class="card c-red" style="left:50px;top:402px;width:170px;height:140px"><b>pod-kill</b><span>kill 50% of prod pods for 60 s<br>expect: PDB + HPA hold the SLO, no 5xx at the Gateway</span><i class="tag t-red">PodChaos</i></div>
+  <div class="card c-red" style="left:232px;top:402px;width:180px;height:140px"><b>network delay</b><span>+300 ms latency on the datastore path<br>expect: p95 SLO burns, burn-rate alert fires, error budget visible</span><i class="tag t-red">NetworkChaos</i></div>
+  <div class="card c-red" style="left:424px;top:402px;width:172px;height:140px"><b>bad release</b><span>canary build with injected 5xx<br>expect: verify fails at 25%, automation rolls back, prod never sees it</span><i class="tag t-red">the real test</i></div>
+
+  <div class="lane" style="left:690px;top:380px;width:674px;height:180px"><label style="color:var(--green)">Runtime · GKE Standard (zonal) · namespaces dev / staging / prod</label></div>
+  <div class="card c-green" style="left:704px;top:402px;width:160px;height:140px"><b>Gateway API · global ALB</b><span>HTTPRoute canary weights set by Cloud Deploy; HealthCheckPolicy; Cloud Armor</span></div>
+  <div class="card c-green" style="left:876px;top:402px;width:150px;height:140px"><b>orders-api pods</b><span>stable + canary Deployments; PDB, HPA, default-deny NetworkPolicy, Workload Identity</span></div>
+  <div class="card c-green" style="left:1038px;top:402px;width:130px;height:140px"><b>Binary Authorization</b><span>cluster policy: require the attestor; unsigned digest → admission denied</span></div>
+  <div class="card c-green" style="left:1180px;top:402px;width:170px;height:140px"><b>Managed Prometheus → Cloud Monitoring</b><span>SLO 99.5% non-5xx · 95% under 300 ms; burn-rate alerts; error budget</span></div>
+
+  <!-- ================= LANE 3: learning loop, y 590-740 ================= -->
+  <div class="lane" style="left:36px;top:590px;width:1328px;height:150px"><label style="color:var(--purple)">Learning loop · from logs to a blameless postmortem draft</label></div>
+  <div class="card c-purple" style="left:50px;top:614px;width:250px;height:110px"><b>Cloud Logging</b><span>app, Cloud Deploy, Chaos Mesh, Binary Authorization audit and GKE events in one place</span></div>
+  <div class="card c-purple" style="left:340px;top:614px;width:180px;height:110px"><b>Log sink → BigQuery</b><span>incident_events table, partitioned by day; SLO burn joined in</span></div>
+  <div class="card c-purple" style="left:560px;top:614px;width:260px;height:110px"><b>postmortem tool (Python, Cloud Run job)</b><span>pulls the incident window, asks Gemini 3.8 Flash on Vertex AI for a blameless draft: timeline, impact, root cause, actions</span><i class="tag t-purple">Vertex AI</i></div>
+  <div class="card c-purple" style="left:860px;top:614px;width:150px;height:110px"><b>postmortem.md</b><span>committed to the repo under postmortems/</span></div>
+  <div class="card c-purple" style="left:1050px;top:614px;width:300px;height:110px"><b>Operator (the demo)</b><span>git push · gcloud deploy promote / rollback · kubectl apply a chaos experiment · one command for the postmortem. Everything else is automation.</span></div>
+
+  <div class="foot">Legend: <span style="color:var(--blue)">■</span> delivery · <span style="color:var(--amber)">■</span> supply-chain guardrail · <span style="color:var(--green)">■</span> runtime / SLO · <span style="color:var(--red)">■</span> chaos · <span style="color:var(--purple)">■</span> AI learning loop · animated dashes carry live signals</div>
+</div></body></html>

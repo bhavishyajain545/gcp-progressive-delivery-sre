@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+  labels:
+    app: orders-api
+spec:
+  replicas: 2 # from-param: ${REPLICAS}
+  selector:
+    matchLabels:
+      app: orders-api
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: orders-api
+    spec:
+      serviceAccountName: orders-api
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: us-central1-docker.pkg.dev/bj-progressive-delivery/apps/orders-api
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: GOOGLE_CLOUD_PROJECT
+              value: bj-progressive-delivery
+            - name: STORE
+              value: firestore
+            - name: APP_ENV
+              value: dev # from-param: ${APP_ENV}
+            # Deploy parameters: Cloud Deploy substitutes "# from-param" values after rendering.
+            # APP_ENV / REPLICAS come from the target; FAIL_RATE / EXTRA_LATENCY_MS from the
+            # release (--deploy-parameters=FAIL_RATE=0.5 ships the "bad release" drill).
+            - name: FAIL_RATE
+              value: "0" # from-param: ${FAIL_RATE}
+            - name: EXTRA_LATENCY_MS
+              value: "0" # from-param: ${EXTRA_LATENCY_MS}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            initialDelaySeconds: 2
+      terminationGracePeriodSeconds: 20

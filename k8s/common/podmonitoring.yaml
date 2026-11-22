@@ -1,0 +1,12 @@
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: orders-api
+spec:
+  selector:
+    matchLabels:
+      app: orders-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
