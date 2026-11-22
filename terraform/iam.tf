@@ -83,6 +83,7 @@ resource "google_project_iam_custom_role" "release_storage" {
   title       = "Cloud Deploy release source upload"
   description = "Read bucket metadata and manage objects in the Cloud Deploy staging bucket"
   permissions = [
+    "storage.buckets.list", # gcloud looks the staging bucket up by listing
     "storage.buckets.get",
     "storage.buckets.create",
     "storage.objects.create",
