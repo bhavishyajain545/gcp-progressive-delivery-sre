@@ -13,7 +13,7 @@ Time: ~25 minutes to a prod rollout (cluster ~7 min, Chaos Mesh ~2 min, build ~2
 |---|---|
 | Billing-linked GCP account | Budget + kill switch recommended. |
 | `gcloud` (>= 590) **with the `beta` component**, `terraform` >= 1.6, `kubectl`, `helm` 3, `gke-gcloud-auth-plugin` | `gcloud components install beta kubectl gke-gcloud-auth-plugin`; `export USE_GKE_GCLOUD_AUTH_PLUGIN=True`. |
-| Go 1.27, Python 3.12 + `google-auth requests` (postmortem tool, demo) | `cd app && go test ./...` |
+| Go 1.27, Python 3.12 + `pip install google-auth requests` (postmortem tool, demo) | `cd app && go test ./...`; the demo expects the venv `~/venvs/p5`. |
 | Vertex AI access to `gemini-3.8-flash` (global) | For the postmortem tool only. |
 | A GitHub repo at `github_repo` (tfvars) | CI auth is bound to exactly this `owner/repo` by the WIF attribute condition. |
 | Your public IP | `authorized_cidr`; the cluster also allows Google's public ranges so Cloud Deploy's default execution pool can reach the control plane. |

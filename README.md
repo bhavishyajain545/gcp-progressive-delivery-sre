@@ -40,7 +40,7 @@ that ends up in BigQuery.
 | Experiment | Expect |
 |---|---|
 | `pod-kill.yaml`: kill 50% of prod pods | PDB + HPA keep serving; Gateway health check drops dead backends in ~10 s; availability SLO unchanged |
-| `network-delay.yaml`: +300 ms to Firestore for 2 min | p95 > 300 ms; latency SLO burns; fast-burn alert; availability green |
+| `network-delay.yaml`: +300 ms on every packet leaving prod pods, 2 min | p95 > 300 ms; latency SLO burns; fast-burn alert; availability green |
 | bad release: `./deploy.sh release bad1 0.5` or the workflow input | verify fails (dev, or prod at 25%); automation rolls back; stable pods never run it |
 
 ## Learning loop (`postmortem/`)

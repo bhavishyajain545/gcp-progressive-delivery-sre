@@ -94,7 +94,7 @@
   <!-- ================= LANE 2: game day (left) and runtime (right), y 380-560 ================= -->
   <div class="lane" style="left:36px;top:380px;width:574px;height:180px"><label style="color:var(--red)">Game day · Chaos Mesh experiments</label></div>
   <div class="card c-red" style="left:50px;top:402px;width:170px;height:140px"><b>pod-kill</b><span>kill 50% of prod pods for 60 s<br>expect: PDB + HPA hold the SLO, no 5xx at the Gateway</span><i class="tag t-red">PodChaos</i></div>
-  <div class="card c-red" style="left:232px;top:402px;width:180px;height:140px"><b>network delay</b><span>+300 ms latency on the datastore path<br>expect: p95 SLO burns, burn-rate alert fires, error budget visible</span><i class="tag t-red">NetworkChaos</i></div>
+  <div class="card c-red" style="left:232px;top:402px;width:180px;height:140px"><b>network delay</b><span>+300 ms on every packet leaving prod pods<br>expect: p95 SLO burns, burn-rate alert fires, error budget visible</span><i class="tag t-red">NetworkChaos</i></div>
   <div class="card c-red" style="left:424px;top:402px;width:172px;height:140px"><b>bad release</b><span>canary build with injected 5xx<br>expect: verify fails at 25%, automation rolls back, prod never sees it</span><i class="tag t-red">the real test</i></div>
 
   <div class="lane" style="left:690px;top:380px;width:674px;height:180px"><label style="color:var(--green)">Runtime · GKE Standard (zonal) · namespaces dev / staging / prod</label></div>

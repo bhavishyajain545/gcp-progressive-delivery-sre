@@ -1,0 +1,33 @@
+# A perfectly well-behaved pod (Pod Security "restricted" compliant) running an image
+# nobody attested. Binary Authorization must deny it at admission:
+#   kubectl -n prod apply -f chaos/unsigned-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: unsigned-probe
+  labels:
+    app: unsigned-probe
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: probe
+      image: nginxinc/nginx-unprivileged:1.27-alpine
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 100m
+          memory: 32Mi

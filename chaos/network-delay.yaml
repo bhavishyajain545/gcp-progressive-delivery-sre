@@ -1,10 +1,13 @@
-# Game day 2: add 300 ms on every egress packet from prod pods (Firestore round
-# trips included) for two minutes. Expect: p95 crosses 300 ms, the latency SLO
-# burns, the fast-burn alert fires, availability stays green.
+# Game day 2: add 300 ms (±50 ms) to every packet leaving prod's pods for two
+# minutes: the Firestore round trip and the response to the load balancer both
+# slow down. Expect: p95 crosses 300 ms, the latency SLO burns, the fast-burn
+# alert fires, availability stays green.
+# (Targeting only firestore.googleapis.com by hostname did not bite: Chaos Mesh
+# resolves the name once at apply time and Google front-end IPs rotate.)
 apiVersion: chaos-mesh.org/v1alpha1
 kind: NetworkChaos
 metadata:
-  name: orders-datastore-delay
+  name: orders-egress-delay
   namespace: chaos-mesh
 spec:
   action: delay
@@ -14,7 +17,6 @@ spec:
     labelSelectors:
       app: orders-api
   direction: to
-  externalTargets: ["firestore.googleapis.com"]
   delay:
     latency: "300ms"
     jitter: "50ms"

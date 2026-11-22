@@ -117,7 +117,7 @@ NARRATION = {
         "You can see the weights on the route and the two deployments side by side."
     ),
     "netdelay": (
-        "Game day two, while a bad release builds. Chaos Mesh adds three hundred milliseconds to every packet from production to Firestore for two minutes. "
+        "Game day two, while a bad release builds. Chaos Mesh adds three hundred milliseconds to every packet leaving production's pods for two minutes, the datastore round trip and the response path included. "
         "Availability stays green, but p95 crosses the latency objective on the dashboard and the latency SLO starts burning budget, which is exactly the alert that should fire. "
         "This is the difference between an outage and a degradation, and the SLOs tell them apart."
     ),
@@ -188,8 +188,8 @@ async def main() -> None:
     async def s2():
         await demo.terminal("Guardrail 1: Binary Authorization admits attested digests only", [])
         await live_steps(page, [
-            ("kubectl -n prod run unsigned --image=nginx:1.27-alpine --restart=Never -- sleep 60",
-             lambda: wsl("kubectl -n prod run unsigned --image=nginx:1.27-alpine --restart=Never -- sleep 60 2>&1; kubectl -n prod delete pod unsigned --ignore-not-found >/dev/null 2>&1") or "(no output)"),
+            ("kubectl -n prod apply -f chaos/unsigned-pod.yaml   # compliant pod, un-attested image",
+             lambda: wsl("kubectl -n prod apply -f chaos/unsigned-pod.yaml 2>&1 | fold -s -w 150; kubectl -n prod delete pod unsigned-probe --ignore-not-found >/dev/null 2>&1") or "(no output)"),
             ("kubectl -n prod get deploy orders-api -o jsonpath='{.spec.template.spec.containers[0].image}'", running_img),
             (f"gcloud beta container binauthz attestations list --attestor {attestor} --artifact-url \"$IMAGE\" --format='value(name,attestation.serializedPayload.len())'",
              lambda: wsl(f"gcloud beta container binauthz attestations list --project {PROJECT} --attestor {attestor} --attestor-project {PROJECT} --artifact-url '{running_img}' --format='value(name)' 2>&1 | head -2")),
@@ -259,7 +259,7 @@ async def main() -> None:
             ("kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight}{\"\\n\"}{end}'",
              lambda: wsl("for i in $(seq 1 12); do W=$(kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight}{\"\\n\"}{end}'); echo \"$W\" | grep -q canary && break; sleep 5; done; echo \"$W\"", timeout=120)),
             ("kubectl -n prod get deploy,svc -l app=orders-api", lambda: wsl("kubectl -n prod get deploy,svc 2>&1 | grep -E 'NAME|orders-api'")),
-            ("kubectl -n default get jobs | tail -4   # verify jobs Cloud Deploy ran in-cluster", lambda: wsl("kubectl -n default get jobs 2>&1 | tail -4")),
+            ("kubectl -n prod get jobs,pods -l app=verify   # the verify Job Cloud Deploy runs in-cluster", lambda: wsl("kubectl -n prod get jobs,pods -l app=verify 2>&1 | tail -4")),
         ], type_delay=5)
     await demo.scene("Prod canary", NARRATION["canary"], s6, hold=1.0)
 
@@ -274,7 +274,7 @@ async def main() -> None:
 
     # ---- 7 game day 2: network delay + dashboard ----
     async def s7():
-        await demo.terminal("Game day 2: +300 ms to Firestore (NetworkChaos)", [])
+        await demo.terminal("Game day 2: +300 ms egress delay on prod (NetworkChaos)", [])
         await live_steps(page, [
             ("kubectl apply -f chaos/network-delay.yaml", lambda: wsl("kubectl apply -f chaos/network-delay.yaml")),
             ("for i in $(seq 1 10); do curl -s -o /dev/null -w '%{http_code} %{time_total}s\\n' -X POST $GW/orders -d '{\"item\":\"slow\",\"qty\":1}'; done",
@@ -310,12 +310,14 @@ async def main() -> None:
             (f"gcloud deploy releases describe {badrel} --delivery-pipeline {PIPELINE} --format='value(deployParameters)'",
              lambda: gd(f"releases describe {badrel} --delivery-pipeline {PIPELINE} --format='value(deployParameters)'")),
             ("kubectl -n dev get pods -l app=orders-api   # healthy to kubelet", lambda: wsl("kubectl -n dev get pods -l app=orders-api")),
-            (f"gcloud deploy rollouts list --delivery-pipeline {PIPELINE} --format='table(name.basename(),targetId,state,failureReason,rollbackOfRollout.basename())' --limit 4",
-             lambda: gd(f"rollouts list --delivery-pipeline {PIPELINE} --format='table(name.basename(),targetId,state,failureReason.slice(0:90).join(\"\"),rollbackOfRollout.basename())' --limit 4")),
-            ("gcloud deploy rollouts describe <failed> --format='value(phases[0].deploymentJobs.verifyJob.state, phases[0].deploymentJobs.verifyJob.jobRun.basename())'",
-             lambda: gd(f"rollouts list --delivery-pipeline {PIPELINE} --release {badrel} --format='value(name.basename(),phases[0].deploymentJobs.verifyJob.state)'")),
-            (f"gcloud deploy job-runs list --delivery-pipeline {PIPELINE} --release {badrel} --rollout <failed> --format='value(name.basename(),state)' ; kubectl -n default logs job/<verify> | tail -3",
-             lambda: wsl("J=$(kubectl -n default get jobs --sort-by=.metadata.creationTimestamp -o name 2>/dev/null | tail -1); kubectl -n default logs $J 2>/dev/null | grep -E 'verify:' | tail -3", timeout=60)),
+            (f"gcloud deploy rollouts list --delivery-pipeline {PIPELINE} --release {badrel} --format='table(name.basename(),targetId,state,phases[0].deploymentJobs.verifyJob.state)'",
+             lambda: gd(f"rollouts list --delivery-pipeline {PIPELINE} --release {badrel} --format='table(name.basename(),targetId,state,phases[0].deploymentJobs.verifyJob.state:label=VERIFY)'")),
+            (f"gcloud deploy rollouts list --delivery-pipeline {PIPELINE} --release {rel} --format='table(name.basename(),targetId,state,rollbackOfRollout.basename())'   # the automation's rollback",
+             lambda: gd(f"rollouts list --delivery-pipeline {PIPELINE} --release {rel} --format='table(name.basename(),targetId,state,rollbackOfRollout.basename():label=ROLLBACK_OF)'")),
+            (f"gcloud deploy automation-runs list --delivery-pipeline {PIPELINE} --format='table(ruleId,state,createTime.date(\"%H:%M\"))' --limit 3",
+             lambda: gd(f"automation-runs list --delivery-pipeline {PIPELINE} --format='table(ruleId,state,createTime.date(\"%H:%M\"))' --limit 3")),
+            ("kubectl -n dev get deploy orders-api -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"FAIL_RATE\")].value}'   # back to the previous release",
+             lambda: wsl("kubectl -n dev get deploy orders-api -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"FAIL_RATE\")].value}'; echo")),
         ], type_delay=5)
     await demo.scene("Bad release caught", NARRATION["bad"], s8, hold=1.0)
 
@@ -338,7 +340,7 @@ async def main() -> None:
         await live_steps(page, [
             ("bq ls incidents", lambda: wsl(f"bq ls --project_id={PROJECT} incidents 2>&1 | head -12")),
             (f"python3 postmortem/postmortem.py --last 30m --title 'bad release bad{stamp} caught by verify; chaos game day'",
-             lambda: trim(wsl(f"python3 postmortem/postmortem.py --last 30m --title 'bad release bad{stamp} caught by verify; chaos game day' 2>&1 | head -40", timeout=240), 2200)),
+             lambda: trim(wsl(f"~/venvs/p5/bin/python postmortem/postmortem.py --last 30m --title 'bad release bad{stamp} caught by verify; chaos game day' 2>&1 | head -40", timeout=300), 2200)),
         ], type_delay=5, hold=4.0)
     await demo.scene("Postmortem", NARRATION["postmortem"], s10, hold=1.0)
 

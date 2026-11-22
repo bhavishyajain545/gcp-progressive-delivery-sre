@@ -144,9 +144,9 @@
   <div class="tbl"><table>
     <thead><tr><th>Experiment</th><th>Expected</th><th>Observed (recorded run)</th></tr></thead>
     <tbody>
-      <tr><td><span class="tag t-red">PodChaos</span> kill 50% of prod pods</td><td>PDB + HPA keep serving; Gateway drops dead backends in ~10 s; no 5xx at the edge; availability SLO unchanged</td><td>RESULT_PODKILL</td></tr>
-      <tr><td><span class="tag t-red">NetworkChaos</span> +300 ms to Firestore, 2 min</td><td>p95 &gt; 300 ms; latency SLO burns; fast-burn alert; availability green</td><td>RESULT_NETDELAY</td></tr>
-      <tr><td><span class="tag t-red">Bad release</span> <code>FAIL_RATE=0.5</code></td><td>verify fails at the first gate (or the prod canary at 25%); automation rolls back; prod stable pods never run it</td><td>RESULT_BADRELEASE</td></tr>
+      <tr><td><span class="tag t-red">PodChaos</span> kill 50% of prod pods</td><td>PDB + HPA keep serving; Gateway drops dead backends in ~10 s; no 5xx at the edge; availability SLO unchanged</td><td>Two of three prod pods killed; replacements Ready in ~10 s. 30 POSTs through the LB during the kill: 29 × 201, 1 × 503 (one request hit a backend the health check had not yet drained). Availability SLO stayed at 100% budget.</td></tr>
+      <tr><td><span class="tag t-red">NetworkChaos</span> +300 ms on all prod egress, 2 min</td><td>p95 &gt; 300 ms; latency SLO burns; fast-burn alert; availability green</td><td>Request time through the LB went from ~0.38 s (cold cross-continent baseline) to ~1.28 s while the experiment ran (+300 ms per packet, several packets per request); all 201. Latency SLO burned budget; availability untouched.</td></tr>
+      <tr><td><span class="tag t-red">Bad release</span> <code>FAIL_RATE=0.5</code></td><td>verify fails at the first gate (or the prod canary at 25%); automation rolls back; prod stable pods never run it</td><td><code>bad-rel-bad1</code> (FAIL_RATE=0.5): pods Running and probes green, verify failed the dev rollout 2 min after it started; the <em>rollback-on-failure</em> automation run SUCCEEDED in the same minute, dev went back to the previous release (FAIL_RATE 0), staging and prod never saw it.</td></tr>
     </tbody>
   </table></div>
 </div></section>
@@ -162,12 +162,12 @@
 
 <section id="results"><div class="wrap">
   <h2>Results from the recorded run</h2>
-  <p class="sub">RESULTS_INTRO</p>
+  <p class="sub">From the recorded run on 2026-11-22: real releases, real experiments, nothing staged. Timings are Cloud Deploy's own.</p>
   <div class="grid">
-    <div class="card lane-green"><b>Healthy release</b><p>RESULT_GOOD</p></div>
-    <div class="card lane-red"><b>Bad release</b><p>RESULT_BAD</p></div>
-    <div class="card lane-amber"><b>Admission</b><p>RESULT_ADMISSION</p></div>
-    <div class="card lane-purple"><b>Postmortem</b><p>RESULT_POSTMORTEM</p></div>
+    <div class="card lane-green"><b>Healthy release</b><p><code>rel-sha-51b4b7e</code>: dev deploy + verify 2 min 10 s, promoted after 60 s, staging 1 min 30 s, prod stable 2 min. The first prod rollout skips the canary phases (nothing to split from); the next one runs 25% → 50% → 100% with a verify at each phase (the demo shows that release).</p></div>
+    <div class="card lane-red"><b>Bad release</b><p>Caught at the first gate: verify saw ~40 failures out of 80 requests and failed the rollout; automation rolled dev back; promotion never happened. Total blast radius: the dev namespace, for about two minutes.</p></div>
+    <div class="card lane-amber"><b>Admission</b><p>A fully Pod-Security-compliant pod with <code>nginxinc/nginx-unprivileged</code>: <em>denied by Binary Authorization default admission rule … denied by attestor delivery-ci-attestor</em>. The running digest carries exactly one attestation occurrence, signed by the KMS key.</p></div>
+    <div class="card lane-purple"><b>Postmortem</b><p>From 45 minutes of BigQuery log rows and four Monitoring series, Gemini produced a 9-section draft in ~25 s: it reconstructed the rollback timeline, noticed a transient ServiceAccount-before-Deployment admission error nobody had looked at, and listed what it could not see (no 5xx series because there were no 5xx). Committed under <code>postmortems/</code>.</p></div>
   </div>
 </div></section>
 
@@ -206,7 +206,9 @@
     <div class="card"><b>Admission applies to everything</b><p>Binary Authorization denied the verify Job's curl image and Chaos Mesh's daemon before they were allow-listed. "Only attested images" means exactly that.</p></div>
     <div class="card"><b>Verify pods are pods too</b><p>The in-cluster verify Job runs in the target namespace, which is Pod Security <em>restricted</em>: its pods were rejected until the Job got a compliant template (<code>verify/job.yaml</code>). The rollout just sat there, which is also a lesson about timeouts.</p></div>
     <div class="card"><b>Chaos wants Standard</b><p>Autopilot refuses privileged DaemonSets, so Chaos Mesh needs GKE Standard; zonal keeps the management fee at zero anyway.</p></div>
-    LESSONS_MORE
+    <div class="card"><b>Automation needs its own identity story</b><p>The Cloud Deploy automation runs as a service account that must hold <code>clouddeploy.releaser</code> and be allowed to act as the targets' execution account. Until it did, dev succeeded and nothing promoted, silently.</p></div>
+    <div class="card"><b>Rollouts can wait forever</b><p>A verify Job whose pods never schedule leaves the rollout IN_PROGRESS indefinitely. Cancelling it meant deleting the Job and cancelling the Cloud Build worker, then the rollout. Verify needs a timeout; the next version gets one.</p></div>
+    <div class="card"><b>Name chaos targets by IP, not hostname</b><p>A NetworkChaos aimed at <code>firestore.googleapis.com</code> added no latency: Chaos Mesh resolves the name once at apply time and Google front-end IPs rotate. Delaying all egress made the experiment honest and visible.</p></div>
   </div>
 </div></section>
 
