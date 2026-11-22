@@ -132,7 +132,7 @@
   <h2>Supply-chain guardrails</h2>
   <div class="grid">
     <div class="card lane-amber"><b>Cloud KMS asymmetric key</b><p>EC P-256, software protection. Only <code>sa-github-ci</code> (and the operator) hold <code>cloudkms.signerVerifier</code>. <code>gcloud beta container binauthz attestations sign-and-create</code> signs the digest and writes the occurrence against the attestor's note.</p></div>
-    <div class="card lane-amber"><b>Binary Authorization policy</b><p><code>PROJECT_SINGLETON_POLICY_ENFORCE</code> on the cluster; default rule <em>require attestation by delivery-ci-attestor</em>, <em>block and audit log</em>. GKE system images, Chaos Mesh, <code>curlimages/curl</code> and <code>grafana/k6</code> are allow-listed by pattern.</p></div>
+    <div class="card lane-amber"><b>Binary Authorization policy</b><p><code>PROJECT_SINGLETON_POLICY_ENFORCE</code> on the cluster; default rule <em>require attestation by delivery-ci-attestor</em>, <em>block and audit log</em>. GKE system images, Chaos Mesh, <code>gcr.io/cloud-builders/*</code> (the verify image) and <code>grafana/k6</code> are allow-listed by pattern.</p></div>
     <div class="card lane-amber"><b>What a denial looks like</b><p><code>kubectl -n prod run x --image=nginx</code> → <em>admission webhook denied: image … denied by attestor delivery-ci-attestor</em>. The audit entry flows through the log sink into BigQuery, so the postmortem tool sees it too.</p></div>
     <div class="card lane-amber"><b>Artifact Analysis</b><p>Vulnerability scanning on push; occurrences sit next to the attestation on the same digest. Severity gating in CI is the obvious next step and is left visible as such.</p></div>
   </div>

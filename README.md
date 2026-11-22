@@ -31,7 +31,7 @@ every resource; keyless from CI to pod.
 | 9 stable | 100%, canary resources removed; a failed verify triggers the **repair rule: rollback** | same |
 
 **Binary Authorization** (`PROJECT_SINGLETON_POLICY_ENFORCE`): default rule *require attestation by
-`delivery-ci-attestor`*, enforcement *block and audit log*; GKE system images, Chaos Mesh, `curlimages/curl` and
+`delivery-ci-attestor`*, enforcement *block and audit log*; GKE system images, Chaos Mesh, `gcr.io/cloud-builders/*` (the verify image) and
 `grafana/k6` are allow-listed by pattern. `kubectl run nginx` in prod is denied; the denial is an audit log entry
 that ends up in BigQuery.
 

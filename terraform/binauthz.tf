@@ -92,6 +92,9 @@ resource "google_binary_authorization_policy" "policy" {
   admission_whitelist_patterns {
     name_pattern = "docker.io/curlimages/curl*"
   }
+  admission_whitelist_patterns {
+    name_pattern = "gcr.io/cloud-builders/*" # verify Job image (gcr.io/cloud-builders/curl)
+  }
 
   global_policy_evaluation_mode = "ENABLE"
 

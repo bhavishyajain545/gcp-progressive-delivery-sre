@@ -20,13 +20,13 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 100
-        runAsGroup: 101
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: checks
-          image: curlimages/curl:8.11.1
+          image: gcr.io/cloud-builders/curl
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false

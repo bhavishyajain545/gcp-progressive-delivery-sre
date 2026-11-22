@@ -41,7 +41,7 @@ verify:
   - name: canary-checks
     container:
       name: checks
-      image: curlimages/curl:8.11.1
+      image: gcr.io/cloud-builders/curl
       command: ["sh", "-c"]
       args:
         - |
