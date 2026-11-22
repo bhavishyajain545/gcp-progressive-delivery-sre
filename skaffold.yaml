@@ -10,20 +10,20 @@ metadata:
 # Namespaces are platform-owned (k8s/namespaces/, applied by deploy.sh), not part of a release:
 # a Namespace created in the same apply as the objects inside it races and the rollout fails.
 manifests:
-  rawYaml: ["k8s/common/*.yaml", "k8s/envs/dev/*.yaml"]
+  rawYaml: ["k8s/common/*.yaml"]
 deploy:
   kubectl:
     defaultNamespace: dev
 profiles:
   - name: dev
     manifests:
-      rawYaml: ["k8s/common/*.yaml", "k8s/envs/dev/*.yaml"]
+      rawYaml: ["k8s/common/*.yaml"]
     deploy:
       kubectl:
         defaultNamespace: dev
   - name: staging
     manifests:
-      rawYaml: ["k8s/common/*.yaml", "k8s/envs/staging/*.yaml"]
+      rawYaml: ["k8s/common/*.yaml"]
     deploy:
       kubectl:
         defaultNamespace: staging
