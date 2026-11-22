@@ -51,3 +51,28 @@ spec:
       ports:
         - port: 443
           protocol: TCP
+---
+# The verify Job (label app=verify, see verify/job.yaml) is also subject to default-deny:
+# it needs DNS and the app pods, nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: verify
+spec:
+  podSelector:
+    matchLabels:
+      app: verify
+  policyTypes: ["Egress"]
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: orders-api
+      ports:
+        - port: 8080
+          protocol: TCP

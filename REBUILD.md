@@ -123,8 +123,9 @@ for 30 days. The empty project costs nothing.
   `chaosDaemon.runtime=containerd` and `chaosDaemon.socketPath=/run/containerd/containerd.sock`.
 - Binary Authorization applies to *every* pod the cluster admits, including verify Jobs and Chaos Mesh:
   allow-list their images by pattern or they are denied too.
-- The in-cluster verify Job runs in the target namespace, which is at Pod Security `restricted`: without a
-  compliant Job template (`verify/job.yaml`, `jobManifestPath`) its pods are rejected and the rollout waits forever.
+- The in-cluster verify Job runs in the target namespace, which is at Pod Security `restricted` and default-deny:
+  without a compliant Job template (`verify/job.yaml`, `jobManifestPath`) its pods are rejected, and without its own
+  egress NetworkPolicy (DNS + app pods) its curl loop hangs. Both leave the rollout waiting; verify needs a timeout.
 - The Cloud Deploy service agent must be able to act as the execution service account
   (`roles/iam.serviceAccountUser` for `service-<number>@gcp-sa-clouddeploy.iam.gserviceaccount.com`).
 - `gcloud beta container binauthz attestations sign-and-create` needs the `beta` component and
