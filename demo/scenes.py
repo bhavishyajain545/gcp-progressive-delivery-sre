@@ -180,13 +180,22 @@ async def main() -> None:
 
     # ---- 1 architecture (animated) ----
     async def s1():
-        await page.goto((ROOT / "docs" / "architecture.html").as_uri())
-        await page.evaluate("() => { document.body.style.zoom = '1.33'; document.body.style.margin = '0'; }")
+        await page.bring_to_front()  # the tab pre-loads left another tab in front; a hidden tab emits no screencast frames
+        await page.goto((ROOT / "docs" / "architecture.html").as_uri(), wait_until="commit")
+        await page.wait_for_selector(".canvas", timeout=15000)
+        # animations off for the recording (a continuously repainting page floods the CDP screencast),
+        # then zoom the 1400x800 canvas to the 1920x1080 frame and verify it took: take 3 recorded it unzoomed
+        width = 0.0
+        for _ in range(6):
+            width = await page.evaluate(
+                "() => { if (!document.getElementById('demo-still')) { const st = document.createElement('style'); st.id = 'demo-still'; st.textContent = '*{animation:none!important}'; document.head.appendChild(st); }"
+                " document.body.style.zoom = '1.33'; document.body.style.margin = '0';"
+                " return document.querySelector('.canvas').getBoundingClientRect().width; }")
+            if width > 1800:
+                break
+            await asyncio.sleep(0.5)
+        print(f"  architecture canvas width after zoom: {width:.0f}px")
     await demo.scene("Architecture", NARRATION["arch"], s1)
-    try:
-        await page.evaluate("() => { const st = document.createElement('style'); st.textContent = '*{animation:none!important}'; document.head.appendChild(st); }")
-    except Exception:
-        pass
 
     # ---- 2 Binary Authorization ----
     async def s2():
@@ -235,17 +244,28 @@ async def main() -> None:
     # ---- 5 pipeline in the console ----
     if use_cdp:
         async def s5():
-            await pipe_tab.reload(wait_until="commit")
             await demo.capture(pipe_tab)
-            await asyncio.sleep(10)
+            try:
+                await pipe_tab.wait_for_selector("text=orders-api", timeout=20000)
+            except Exception:
+                await pipe_tab.reload(wait_until="commit")
+                try:
+                    await pipe_tab.wait_for_selector("text=orders-api", timeout=60000)
+                except Exception:
+                    pass
+            await asyncio.sleep(8)
             # stay on the page while dev/staging progress; leave once staging succeeded or 70 s passed
             for _ in range(14):
                 st = rollouts(rel)
                 if "staging" in st and ("SUCCEEDED" in st.split("staging")[-1] or "prod" in st):
                     break
                 await asyncio.sleep(5)
-            await pipe_tab.reload(wait_until="commit")
-            await asyncio.sleep(8)
+            try:  # refresh once more so the staging rollout shows, but only after the page is known to render
+                await pipe_tab.reload(wait_until="commit")
+                await pipe_tab.wait_for_selector("text=orders-api", timeout=30000)
+            except Exception:
+                pass
+            await asyncio.sleep(6)
         await demo.scene("Pipeline", NARRATION["pipeline"], s5, hold=1.5)
         await demo.capture(page)
 
@@ -289,11 +309,14 @@ async def main() -> None:
             ("kubectl apply -f chaos/network-delay.yaml", lambda: wsl("kubectl apply -f chaos/network-delay.yaml")),
             ("for i in $(seq 1 10); do curl -s -o /dev/null -w '%{http_code} %{time_total}s\\n' -X POST $GW/orders -d '{\"item\":\"slow\",\"qty\":1}'; done",
              lambda: wsl(f"sleep 5; for i in $(seq 1 10); do curl -s --max-time 10 -o /dev/null -w '%{{http_code}} %{{time_total}}s\\n' -X POST {api}/orders -H 'content-type: application/json' -d '{{\"item\":\"slow-'$i'\",\"qty\":1}}'; done", timeout=200)),
-        ], type_delay=5, hold=1.0)
+        ], type_delay=5, hold=4.0)
         if use_cdp:
-            await dash_tab.reload(wait_until="commit")
             await demo.capture(dash_tab)
-            await asyncio.sleep(12)
+            try:
+                await dash_tab.wait_for_selector("text=Requests/s", timeout=15000)
+            except Exception:
+                pass
+            await asyncio.sleep(10)
     await demo.scene("Game day 2 network delay", NARRATION["netdelay"], s7, hold=1.5)
     if use_cdp:
         await demo.capture(page)
@@ -334,12 +357,15 @@ async def main() -> None:
     # ---- 9 SLOs ----
     if use_cdp:
         async def s9():
-            await slo_tab.reload(wait_until="commit")
             await demo.capture(slo_tab)
             try:
-                await slo_tab.wait_for_selector("text=/orders", timeout=60000)
+                await slo_tab.wait_for_selector("text=/orders", timeout=10000)
             except Exception:
-                pass
+                await slo_tab.reload(wait_until="commit")
+                try:
+                    await slo_tab.wait_for_selector("text=/orders", timeout=60000)
+                except Exception:
+                    pass
             await asyncio.sleep(6)
         await demo.scene("SLOs", NARRATION["slo"], s9, hold=1.5)
         await demo.capture(page)

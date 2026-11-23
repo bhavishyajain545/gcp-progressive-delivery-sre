@@ -6,52 +6,52 @@
   },
   {
     "title": "Binary Authorization",
-    "start": 54.07,
-    "end": 84.12
+    "start": 54.05,
+    "end": 91.62
   },
   {
-    "title": "Game day: pod-kill",
-    "start": 84.54,
-    "end": 112.36
+    "title": "Game day 1 pod-kill",
+    "start": 92.07,
+    "end": 119.9
   },
   {
     "title": "Release",
-    "start": 265.49,
-    "end": 286.39
+    "start": 120.33,
+    "end": 141.24
   },
   {
     "title": "Pipeline",
-    "start": 286.8,
-    "end": 317.53
+    "start": 141.66,
+    "end": 172.39
   },
   {
     "title": "Prod canary",
-    "start": 326.53,
-    "end": 360.97
+    "start": 172.99,
+    "end": 207.44
   },
   {
-    "title": "Game day: network delay",
-    "start": 361.44,
-    "end": 398.87
+    "title": "Game day 2 network delay",
+    "start": 207.89,
+    "end": 245.32
   },
   {
     "title": "Bad release caught",
-    "start": 577.09,
-    "end": 615.14
+    "start": 245.92,
+    "end": 283.96
   },
   {
     "title": "SLOs",
-    "start": 615.6,
-    "end": 644.58
+    "start": 284.4,
+    "end": 305.08
   },
   {
     "title": "Postmortem",
-    "start": 645.54,
-    "end": 688.44
+    "start": 305.96,
+    "end": 348.85
   },
   {
     "title": "Wrap-up",
-    "start": 688.83,
-    "end": 717.98
+    "start": 349.31,
+    "end": 380.88
   }
 ]

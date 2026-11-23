@@ -27,153 +27,153 @@ Chaos Mesh game days and a deliberately bad release prove the guardrails, and ev
 Everything is Terraform, and nothing in the path holds a key.
 
 8
-00:00:54,067 --> 00:00:56,499
+00:00:54,054 --> 00:00:56,486
 First guardrail: the cluster itself.
 
 9
-00:00:56,499 --> 00:01:03,053
+00:00:56,486 --> 00:01:03,040
 Binary Authorization is enforced with a policy that requires an attestation from our CI attestor.
 
 10
-00:01:03,053 --> 00:01:10,214
+00:01:03,040 --> 00:01:10,201
 I try to run a plain nginx image in production: admission denies it, and the denial is an audit log entry.
 
 11
-00:01:10,214 --> 00:01:18,997
+00:01:10,201 --> 00:01:18,984
 The image that is running carries an attestation on its exact digest, signed by a Cloud KMS key that only the CI identity can use.
 
 12
-00:01:18,997 --> 00:01:21,835
+00:01:18,984 --> 00:01:21,822
 Tags are not identities here; digests are.
 
 13
-00:01:24,540 --> 00:01:27,721
+00:01:32,074 --> 00:01:35,255
 Game day one, while a release is building in the background.
 
 14
-00:01:27,721 --> 00:01:30,000
+00:01:35,255 --> 00:01:37,534
 Chaos Mesh kills half of production's pods.
 
 15
-00:01:30,000 --> 00:01:40,603
+00:01:37,534 --> 00:01:48,136
 The PodDisruptionBudget and the autoscaler keep the service up, the Gateway health check drops the dead backends within seconds, and thirty requests through the load balancer all come back two-oh-one.
 
 16
-00:01:40,603 --> 00:01:42,564
+00:01:48,136 --> 00:01:50,098
 The availability SLO does not notice.
 
 17
-00:04:25,487 --> 00:04:26,573
+00:02:00,334 --> 00:02:01,421
 The release itself.
 
 18
-00:04:26,573 --> 00:04:35,949
+00:02:01,421 --> 00:02:10,797
 Cloud Build tested and built the image; the digest was signed and attested; then a Cloud Deploy release was created with that digest and the Skaffold configuration.
 
 19
-00:04:35,949 --> 00:04:45,383
+00:02:10,797 --> 00:02:20,230
 From here nobody runs kubectl: Cloud Deploy renders the manifests per target, with the deploy parameters substituted, and the automation takes it through the stages.
 
 20
-00:04:46,805 --> 00:04:49,607
+00:02:21,661 --> 00:02:24,464
 This is the delivery pipeline in the console.
 
 21
-00:04:49,607 --> 00:05:01,878
+00:02:24,464 --> 00:02:36,735
 The dev rollout deploys and then runs the verify job inside the cluster: eighty requests against the service, at most one failure, p95 under three hundred milliseconds, the SLOs restated as a gate.
 
 22
-00:05:01,878 --> 00:05:07,733
+00:02:36,735 --> 00:02:42,589
 When it passes, the automation promotes to staging after a minute, and staging verifies again.
 
 23
-00:05:26,528 --> 00:05:27,884
+00:02:52,989 --> 00:02:54,346
 Production is a canary.
 
 24
-00:05:27,884 --> 00:05:38,321
+00:02:54,346 --> 00:03:04,783
 Cloud Deploy creates a canary deployment next to the stable one and rewrites the HTTPRoute weights: twenty-five percent of traffic to the new digest, then fifty, then all of it.
 
 25
-00:05:38,321 --> 00:05:46,812
+00:03:04,783 --> 00:03:13,274
 At each phase the verify job targets the canary service specifically, so a bad build is caught while most users are still on the stable version.
 
 26
-00:05:46,812 --> 00:05:51,176
+00:03:13,274 --> 00:03:17,637
 You can see the weights on the route and the two deployments side by side.
 
 27
-00:06:01,445 --> 00:06:03,928
+00:03:27,892 --> 00:03:30,376
 Game day two, while a bad release builds.
 
 28
-00:06:03,928 --> 00:06:13,500
+00:03:30,376 --> 00:03:39,947
 Chaos Mesh adds three hundred milliseconds to every packet leaving production's pods for two minutes, the datastore round trip and the response path included.
 
 29
-00:06:13,500 --> 00:06:23,677
+00:03:39,947 --> 00:03:50,125
 Availability stays green, but p95 crosses the latency objective on the dashboard and the latency SLO starts burning budget, which is exactly the alert that should fire.
 
 30
-00:06:23,677 --> 00:06:29,069
+00:03:50,125 --> 00:03:55,516
 This is the difference between an outage and a degradation, and the SLOs tell them apart.
 
 31
-00:09:37,089 --> 00:09:38,171
+00:04:05,916 --> 00:04:06,998
 Now the real test.
 
 32
-00:09:38,171 --> 00:09:47,487
+00:04:06,998 --> 00:04:16,314
 I shipped a release with a fifty percent failure rate injected into the business routes only; the pods look healthy to kubelet, probes pass, it is Running.
 
 33
-00:09:47,487 --> 00:09:52,836
+00:04:16,314 --> 00:04:21,663
 The verify job sees forty failures out of eighty and fails the rollout at the first gate.
 
 34
-00:09:52,836 --> 00:09:59,747
+00:04:21,663 --> 00:04:28,575
 The repair automation rolls dev back to the previous release, promotion never happens, and production never ran it.
 
 35
-00:09:59,747 --> 00:10:05,337
+00:04:28,575 --> 00:04:34,164
 Had it slipped through, the same verification runs against the canary at twenty-five percent.
 
 36
-00:10:15,602 --> 00:10:26,465
+00:04:44,404 --> 00:04:55,266
 The SLOs in Cloud Monitoring: ninety-nine point five percent of production orders without a 5xx, and ninety-five percent under three hundred milliseconds, each with a multi-window burn-rate alert.
 
 37
-00:10:26,465 --> 00:10:34,778
+00:04:55,266 --> 00:05:03,580
 The pod-kill left the availability budget untouched; the network delay took a visible bite out of the latency budget, which is what a game day is for.
 
 38
-00:10:45,544 --> 00:10:46,762
+00:05:05,959 --> 00:05:07,177
 The learning loop.
 
 39
-00:10:46,762 --> 00:10:56,576
+00:05:07,177 --> 00:05:16,991
 A log sink routes application logs, Cloud Deploy and Binary Authorization audit entries, Kubernetes events and Chaos Mesh activity into BigQuery.
 
 40
-00:10:56,576 --> 00:11:11,939
+00:05:16,991 --> 00:05:32,355
 One command pulls the last half hour of that evidence plus the production error ratio and latency from the Monitoring API, and asks Gemini for a blameless postmortem draft: timeline, impact, detection, root cause, action items.
 
 41
-00:11:11,939 --> 00:11:14,849
+00:05:32,355 --> 00:05:35,265
 It is told to say when evidence is missing.
 
 42
-00:11:14,849 --> 00:11:18,640
+00:05:35,265 --> 00:05:39,055
 A human edits it, then it is committed next to the code.
 
 43
-00:11:28,830 --> 00:11:46,441
+00:05:49,308 --> 00:06:06,920
 Everything shown is in the repository: the Go service with its fault knobs and tests, Terraform for the cluster, Cloud Deploy pipeline and automation, the KMS attestor and the Binary Authorization policy, the Skaffold verify job, the chaos experiments, the postmortem tool and the keyless release workflow.
 
 44
-00:11:46,441 --> 00:11:51,967
+00:06:06,920 --> 00:06:12,445
 The platform costs a few hundred rupees a day while it runs, and the teardown script removes it.
 
 45
-00:11:51,967 --> 00:11:53,118
+00:06:12,445 --> 00:06:13,596
 Thanks for watching.

@@ -144,6 +144,8 @@ class Demo:
         """Switch the screencast to another tab (CDP mode); the timeline keeps running."""
         if not self.cdp_url or page is self.page:
             self.page = page
+            if self.cdp_url:
+                await page.bring_to_front()  # new_tab() leaves the newest tab in front; a hidden tab paints no screencast frames
             return
         if self._cdp:
             try:
