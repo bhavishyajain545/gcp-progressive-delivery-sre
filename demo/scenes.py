@@ -8,7 +8,9 @@ Prerequisites:
 
   python -u demo/scenes.py
 
-The take creates two real releases (one healthy, one with FAIL_RATE=0.5) and waits for Cloud Deploy, so it runs ~12 minutes.
+The take creates two real releases (one healthy, one with FAIL_RATE=0.5) and waits for Cloud Deploy, so it runs ~20 minutes.
+  Rule: nothing slow runs inside a scene. Commands run (and waits happen) BEFORE each scene; the scene types the
+  commands and pastes the captured output, paced over the narration. Waiting between scenes is cut by the recorder.
 """
 
 from __future__ import annotations
@@ -79,6 +81,50 @@ async def live_steps(page, steps, type_delay: int = 7, pause: float = 0.45, hold
     await asyncio.sleep(hold)
 
 
+def capture_steps(steps) -> list[tuple[str, str]]:
+    """Run the producers now, before the scene, so the scene only types and pastes.
+
+    A producer that runs inside a scene leaves the narration playing over an empty terminal, and a
+    blocking call on the event loop stalls the screencast (frames are acked from the loop)."""
+    return [(cmd, (producer() if callable(producer) else producer)) for cmd, producer in steps]
+
+
+async def precapture(steps) -> list[tuple[str, str]]:
+    return await asyncio.to_thread(capture_steps, steps)
+
+
+async def replay(page, steps, spread: float, type_delay: int = 5, hold: float = 2.0) -> None:
+    """Type the captured commands and paste their outputs, paced across about `spread` seconds."""
+    n = max(len(steps), 1)
+    pause = max(0.4, min(3.0, spread / n / 2))
+    for cmd, out in steps:
+        await type_cmd(page, cmd, type_delay)
+        await asyncio.sleep(pause)
+        await page.evaluate("(o) => window.__output(o)", out)
+        await asyncio.sleep(pause)
+    await asyncio.sleep(hold)
+
+
+async def poll(check, every: float = 5.0, tries: int = 60) -> bool:
+    """Wait, off the event loop and outside any scene, until check() is true."""
+    for _ in range(tries):
+        if await asyncio.to_thread(check):
+            return True
+        await asyncio.sleep(every)
+    return False
+
+
+async def console_ready(tab, text: str, reload: bool = True) -> None:
+    """Refresh a pre-loaded console tab and wait until it has rendered, before the scene that shows it."""
+    try:
+        if reload:
+            await tab.reload(wait_until="commit")
+        await tab.wait_for_selector(f"text={text}", timeout=60000)
+        await asyncio.sleep(2.5)
+    except Exception as exc:
+        print(f"  ! console tab not ready ({text}): {type(exc).__name__}")
+
+
 def trim(s: str, n: int = 1500) -> str:
     return s if len(s) <= n else s[:n] + "\n…"
 
@@ -147,6 +193,7 @@ async def main() -> None:
     use_cdp = cdp_available()
     demo = Demo(out_dir=HERE, cdp_url=CDP_URL if use_cdp else None, max_silence=5.0, tail=4.0)
     await demo.prepare(*NARRATION.values())
+    alen = {k: (await demo._tts(v))[1] for k, v in NARRATION.items()}  # seconds of narration per scene, for pacing
 
     t0 = time.time()
     ip = wsl("kubectl -n prod get gateway external -o jsonpath='{.status.addresses[0].value}'")
@@ -198,30 +245,34 @@ async def main() -> None:
     await demo.scene("Architecture", NARRATION["arch"], s1)
 
     # ---- 2 Binary Authorization ----
+    steps2 = await precapture([
+        ("kubectl -n prod apply -f chaos/unsigned-pod.yaml   # compliant pod, un-attested image",
+         lambda: wsl("kubectl -n prod apply -f chaos/unsigned-pod.yaml 2>&1 | fold -s -w 150; kubectl -n prod delete pod unsigned-probe --ignore-not-found >/dev/null 2>&1") or "(no output)"),
+        ("kubectl -n prod get deploy orders-api -o jsonpath='{.spec.template.spec.containers[0].image}'", running_img),
+        (f"gcloud beta container binauthz attestations list --attestor {attestor} --artifact-url \"$IMAGE\" --format='value(name,attestation.serializedPayload.len())'",
+         lambda: wsl(f"gcloud beta container binauthz attestations list --project {PROJECT} --attestor {attestor} --attestor-project {PROJECT} --artifact-url '{running_img}' --format='value(name)' 2>&1 | head -2")),
+        ("gcloud container binauthz policy export | grep -v namePattern", policy),
+        (f"gcloud container clusters describe delivery --zone {ZONE} --format='value(binaryAuthorization.evaluationMode,privateClusterConfig.enablePrivateNodes,workloadIdentityConfig.workloadPool)'", cluster),
+    ])
+
     async def s2():
         await demo.terminal("Guardrail 1: Binary Authorization admits attested digests only", [])
-        await live_steps(page, [
-            ("kubectl -n prod apply -f chaos/unsigned-pod.yaml   # compliant pod, un-attested image",
-             lambda: wsl("kubectl -n prod apply -f chaos/unsigned-pod.yaml 2>&1 | fold -s -w 150; kubectl -n prod delete pod unsigned-probe --ignore-not-found >/dev/null 2>&1") or "(no output)"),
-            ("kubectl -n prod get deploy orders-api -o jsonpath='{.spec.template.spec.containers[0].image}'", running_img),
-            (f"gcloud beta container binauthz attestations list --attestor {attestor} --artifact-url \"$IMAGE\" --format='value(name,attestation.serializedPayload.len())'",
-             lambda: wsl(f"gcloud beta container binauthz attestations list --project {PROJECT} --attestor {attestor} --attestor-project {PROJECT} --artifact-url '{running_img}' --format='value(name)' 2>&1 | head -2")),
-            ("gcloud container binauthz policy export | grep -v namePattern", policy),
-            (f"gcloud container clusters describe delivery --zone {ZONE} --format='value(binaryAuthorization.evaluationMode,privateClusterConfig.enablePrivateNodes,workloadIdentityConfig.workloadPool)'", cluster),
-        ], type_delay=5)
+        await replay(page, steps2, spread=alen["binauthz"] * 0.6)
     await demo.scene("Binary Authorization", NARRATION["binauthz"], s2, hold=1.0)
 
-    # ---- 3 game day 1: pod-kill ----
+    # ---- 3 game day 1: pod-kill (the experiment runs now; the scene replays it) ----
+    steps3 = await precapture([
+        ("kubectl -n prod get pods -l app=orders-api", lambda: wsl("kubectl -n prod get pods -l app=orders-api")),
+        ("kubectl apply -f chaos/pod-kill.yaml", lambda: wsl("kubectl apply -f chaos/pod-kill.yaml")),
+        ("sleep 8; kubectl -n prod get pods -l app=orders-api", lambda: wsl("sleep 8; kubectl -n prod get pods -l app=orders-api")),
+        ("for i in $(seq 1 30); do curl -s -o /dev/null -w '%{http_code}\\n' -X POST $GW/orders -d '{\"item\":\"gameday\",\"qty\":1}'; done | sort | uniq -c",
+         lambda: wsl(f"for i in $(seq 1 30); do curl -s --max-time 10 -o /dev/null -w '%{{http_code}}\\n' -X POST {api}/orders -H 'content-type: application/json' -d '{{\"item\":\"gameday-'$i'\",\"qty\":1}}'; done | sort | uniq -c", timeout=400)),
+        ("kubectl -n prod get pdb,hpa", lambda: wsl("kubectl -n prod get pdb,hpa; kubectl delete -f chaos/pod-kill.yaml >/dev/null 2>&1")),
+    ])
+
     async def s3():
         await demo.terminal("Game day 1: Chaos Mesh pod-kill on prod", [])
-        await live_steps(page, [
-            ("kubectl -n prod get pods -l app=orders-api", lambda: wsl("kubectl -n prod get pods -l app=orders-api")),
-            ("kubectl apply -f chaos/pod-kill.yaml", lambda: wsl("kubectl apply -f chaos/pod-kill.yaml")),
-            ("sleep 8; kubectl -n prod get pods -l app=orders-api", lambda: wsl("sleep 8; kubectl -n prod get pods -l app=orders-api")),
-            ("for i in $(seq 1 30); do curl -s -o /dev/null -w '%{http_code}\\n' -X POST $GW/orders -d '{\"item\":\"gameday\",\"qty\":1}'; done | sort | uniq -c",
-             lambda: wsl(f"for i in $(seq 1 30); do curl -s --max-time 10 -o /dev/null -w '%{{http_code}}\\n' -X POST {api}/orders -H 'content-type: application/json' -d '{{\"item\":\"gameday-'$i'\",\"qty\":1}}'; done | sort | uniq -c", timeout=400)),
-            ("kubectl -n prod get pdb,hpa", lambda: wsl("kubectl -n prod get pdb,hpa; kubectl delete -f chaos/pod-kill.yaml >/dev/null 2>&1")),
-        ], type_delay=5)
+        await replay(page, steps3, spread=alen["podkill"] * 0.65)
     await demo.scene("Game day 1 pod-kill", NARRATION["podkill"], s3, hold=1.0)
 
     # ---- 4 the release ----
@@ -231,66 +282,49 @@ async def main() -> None:
         except Exception:
             pass
     rel = good.get("name", "")
+    steps4 = await precapture([
+        (f"./deploy.sh release demo{stamp}", trim(good.get("log", "(release log missing)"), 1700)),
+        (f"gcloud deploy releases describe {rel} --delivery-pipeline {PIPELINE} --format='value(name.basename(),buildArtifacts[0].image,deployParameters,renderState)'",
+         lambda: gd(f"releases describe {rel} --delivery-pipeline {PIPELINE} --format='value(name.basename(),buildArtifacts[0].image,deployParameters,renderState)'")),
+    ])
 
     async def s4():
         await demo.terminal("A release: build → sign → attest → Cloud Deploy", [])
-        await live_steps(page, [
-            (f"./deploy.sh release demo{stamp}", trim(good.get("log", "(release log missing)"), 1700)),
-            (f"gcloud deploy releases describe {rel} --delivery-pipeline {PIPELINE} --format='value(name.basename(),buildArtifacts[0].image,deployParameters,renderState)'",
-             lambda: gd(f"releases describe {rel} --delivery-pipeline {PIPELINE} --format='value(name.basename(),buildArtifacts[0].image,deployParameters,renderState)'")),
-        ], type_delay=5)
+        await replay(page, steps4, spread=alen["release"] * 0.5)
     await demo.scene("Release", NARRATION["release"], s4, hold=1.0)
 
-    # ---- 5 pipeline in the console ----
+    # ---- 5 pipeline in the console (refreshed before the scene, shown as-is during it) ----
     if use_cdp:
+        await console_ready(pipe_tab, "orders-api")
+
         async def s5():
             await demo.capture(pipe_tab)
-            try:
-                await pipe_tab.wait_for_selector("text=orders-api", timeout=20000)
-            except Exception:
-                await pipe_tab.reload(wait_until="commit")
-                try:
-                    await pipe_tab.wait_for_selector("text=orders-api", timeout=60000)
-                except Exception:
-                    pass
-            await asyncio.sleep(8)
-            # stay on the page while dev/staging progress; leave once staging succeeded or 70 s passed
-            for _ in range(14):
-                st = rollouts(rel)
-                if "staging" in st and ("SUCCEEDED" in st.split("staging")[-1] or "prod" in st):
-                    break
-                await asyncio.sleep(5)
-            try:  # refresh once more so the staging rollout shows, but only after the page is known to render
-                await pipe_tab.reload(wait_until="commit")
-                await pipe_tab.wait_for_selector("text=orders-api", timeout=30000)
-            except Exception:
-                pass
-            await asyncio.sleep(6)
         await demo.scene("Pipeline", NARRATION["pipeline"], s5, hold=1.5)
         await demo.capture(page)
 
-    # ---- 6 prod canary ----
+    # ---- 6 prod canary: wait for the canary phase first, then replay the evidence ----
+    def prod_in_canary() -> bool:
+        st = rollouts(rel)
+        return "prod" in st and ("IN_PROGRESS" in st.split("prod")[-1] or "SUCCEEDED" in st.split("prod")[-1])
+
+    def canary_has_weight() -> bool:
+        w = wsl("kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight} {end}'")
+        ready = wsl("kubectl -n prod get deploy orders-api-canary -o jsonpath='{.status.availableReplicas}' 2>/dev/null")
+        return "canary" in w and ready not in ("", "0")
+
+    await poll(prod_in_canary, 5, 60)
+    await poll(canary_has_weight, 5, 60)
+    steps6 = await precapture([
+        (f"gcloud deploy rollouts list --delivery-pipeline {PIPELINE} --release {rel}", lambda: rollouts(rel)),
+        ("kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight}{\"\\n\"}{end}'",
+         lambda: wsl("kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight}{\"\\n\"}{end}'")),
+        ("kubectl -n prod get deploy,svc,pods -L app | grep -E 'NAME|orders'", lambda: wsl("kubectl -n prod get deploy,svc,pods -L app 2>&1 | grep -E 'NAME|orders' | cut -c1-130")),
+        ("kubectl -n prod get jobs,pods -l app=verify   # the verify Job Cloud Deploy runs in-cluster", lambda: wsl("kubectl -n prod get jobs,pods -l app=verify 2>&1 | tail -4")),
+    ])
+
     async def s6():
         await demo.terminal("Prod canary: 25% → 50% → 100% on Gateway API weights", [])
-        # wait for the prod rollout to be in a canary phase AND the canary to carry traffic weight
-        for _ in range(60):
-            st = rollouts(rel)
-            if "prod" in st and ("IN_PROGRESS" in st.split("prod")[-1] or "SUCCEEDED" in st.split("prod")[-1]):
-                break
-            await asyncio.sleep(5)
-        for _ in range(60):
-            w = wsl("kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight} {end}'")
-            ready = wsl("kubectl -n prod get deploy orders-api-canary -o jsonpath='{.status.availableReplicas}' 2>/dev/null")
-            if "canary" in w and ready not in ("", "0"):
-                break
-            await asyncio.sleep(5)
-        await live_steps(page, [
-            (f"gcloud deploy rollouts list --delivery-pipeline {PIPELINE} --release {rel}", lambda: rollouts(rel)),
-            ("kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight}{\"\\n\"}{end}'",
-             lambda: wsl("kubectl -n prod get httproute orders-api -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight}{\"\\n\"}{end}'")),
-            ("kubectl -n prod get deploy,svc,pods -L app | grep -E 'NAME|orders'", lambda: wsl("kubectl -n prod get deploy,svc,pods -L app 2>&1 | grep -E 'NAME|orders' | cut -c1-130")),
-            ("kubectl -n prod get jobs,pods -l app=verify   # the verify Job Cloud Deploy runs in-cluster", lambda: wsl("kubectl -n prod get jobs,pods -l app=verify 2>&1 | tail -4")),
-        ], type_delay=5)
+        await replay(page, steps6, spread=alen["canary"] * 0.6)
     await demo.scene("Prod canary", NARRATION["canary"], s6, hold=1.0)
 
     # --- the bad release builds in the background during scene 7 (~3 min) ---
@@ -302,93 +336,86 @@ async def main() -> None:
         bad["name"] = out.strip().splitlines()[-1].strip() if out.strip() else ""
     bad_task = asyncio.ensure_future(asyncio.to_thread(do_bad_release))
 
-    # ---- 7 game day 2: network delay + dashboard ----
+    # ---- 7 game day 2: network delay (runs now) + dashboard ----
+    steps7 = await precapture([
+        ("kubectl apply -f chaos/network-delay.yaml", lambda: wsl("kubectl apply -f chaos/network-delay.yaml")),
+        ("for i in $(seq 1 10); do curl -s -o /dev/null -w '%{http_code} %{time_total}s\\n' -X POST $GW/orders -d '{\"item\":\"slow\",\"qty\":1}'; done",
+         lambda: wsl(f"sleep 5; for i in $(seq 1 10); do curl -s --max-time 10 -o /dev/null -w '%{{http_code}} %{{time_total}}s\\n' -X POST {api}/orders -H 'content-type: application/json' -d '{{\"item\":\"slow-'$i'\",\"qty\":1}}'; done", timeout=200)),
+    ])
+    if use_cdp:
+        await asyncio.sleep(45)  # let the slow requests reach the dashboard's 1-minute points
+        await console_ready(dash_tab, "Requests/s")
+
     async def s7():
         await demo.terminal("Game day 2: +300 ms egress delay on prod (NetworkChaos)", [])
-        await live_steps(page, [
-            ("kubectl apply -f chaos/network-delay.yaml", lambda: wsl("kubectl apply -f chaos/network-delay.yaml")),
-            ("for i in $(seq 1 10); do curl -s -o /dev/null -w '%{http_code} %{time_total}s\\n' -X POST $GW/orders -d '{\"item\":\"slow\",\"qty\":1}'; done",
-             lambda: wsl(f"sleep 5; for i in $(seq 1 10); do curl -s --max-time 10 -o /dev/null -w '%{{http_code}} %{{time_total}}s\\n' -X POST {api}/orders -H 'content-type: application/json' -d '{{\"item\":\"slow-'$i'\",\"qty\":1}}'; done", timeout=200)),
-        ], type_delay=5, hold=4.0)
+        await replay(page, steps7, spread=8.0, hold=4.0)
         if use_cdp:
             await demo.capture(dash_tab)
-            try:
-                await dash_tab.wait_for_selector("text=Requests/s", timeout=15000)
-            except Exception:
-                pass
-            await asyncio.sleep(10)
     await demo.scene("Game day 2 network delay", NARRATION["netdelay"], s7, hold=1.5)
     if use_cdp:
         await demo.capture(page)
 
-    # ---- 8 the bad release is caught ----
+    # ---- 8 the bad release is caught: wait for the failure + rollback first ----
     if not bad_task.done():
         try:
             await asyncio.wait_for(bad_task, timeout=600)
         except Exception:
             pass
     badrel = bad.get("name", "")
+    await poll(lambda: "FAILED" in gd(f"rollouts list --delivery-pipeline {PIPELINE} --release {badrel} --format='value(state)'"), 5, 48)
+    await asyncio.sleep(25)  # the repair automation needs a moment to start the rollback
+    steps8 = await precapture([
+        (f"./deploy.sh release bad{stamp} 0.5", trim(bad.get("log", ""), 600)),
+        (f"gcloud deploy releases describe {badrel} --delivery-pipeline {PIPELINE} --format='value(deployParameters)'",
+         lambda: gd(f"releases describe {badrel} --delivery-pipeline {PIPELINE} --format='value(deployParameters)'")),
+        ("kubectl -n dev get pods -l app=orders-api   # healthy to kubelet", lambda: wsl("kubectl -n dev get pods -l app=orders-api")),
+        (f"gcloud deploy rollouts list --delivery-pipeline {PIPELINE} --release {badrel} --format='table(name.basename(),targetId,state,phases[0].deploymentJobs.verifyJob.state)'",
+         lambda: gd(f"rollouts list --delivery-pipeline {PIPELINE} --release {badrel} --format='table(name.basename(),targetId,state,phases[0].deploymentJobs.verifyJob.state:label=VERIFY)'")),
+        (f"gcloud deploy rollouts list --delivery-pipeline {PIPELINE} --release {rel} --format='table(name.basename(),targetId,state,rollbackOfRollout.basename())'   # the automation's rollback",
+         lambda: gd(f"rollouts list --delivery-pipeline {PIPELINE} --release {rel} --format='table(name.basename(),targetId,state,rollbackOfRollout.basename():label=ROLLBACK_OF)'")),
+        (f"gcloud deploy automation-runs list --delivery-pipeline {PIPELINE} --format='table(ruleId,state,createTime.date(\"%H:%M\"))' --limit 3",
+         lambda: gd(f"automation-runs list --delivery-pipeline {PIPELINE} --format='table(ruleId,state,createTime.date(\"%H:%M\"))' --limit 3")),
+        ("kubectl -n dev get deploy orders-api -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"FAIL_RATE\")].value}'   # back to the previous release",
+         lambda: wsl("kubectl -n dev get deploy orders-api -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"FAIL_RATE\")].value}'; echo")),
+    ])
 
     async def s8():
         await demo.terminal("The bad release: FAIL_RATE=0.5, caught by verify, rolled back", [])
-        # wait for dev to FAIL and the repair rollout to appear
-        for _ in range(48):
-            st = gd(f"rollouts list --delivery-pipeline {PIPELINE} --release {badrel} --format='value(state)'")
-            if "FAILED" in st:
-                break
-            await asyncio.sleep(5)
-        await asyncio.sleep(20)  # give the repair automation time to start the rollback
-        await live_steps(page, [
-            (f"./deploy.sh release bad{stamp} 0.5", trim(bad.get("log", ""), 600)),
-            (f"gcloud deploy releases describe {badrel} --delivery-pipeline {PIPELINE} --format='value(deployParameters)'",
-             lambda: gd(f"releases describe {badrel} --delivery-pipeline {PIPELINE} --format='value(deployParameters)'")),
-            ("kubectl -n dev get pods -l app=orders-api   # healthy to kubelet", lambda: wsl("kubectl -n dev get pods -l app=orders-api")),
-            (f"gcloud deploy rollouts list --delivery-pipeline {PIPELINE} --release {badrel} --format='table(name.basename(),targetId,state,phases[0].deploymentJobs.verifyJob.state)'",
-             lambda: gd(f"rollouts list --delivery-pipeline {PIPELINE} --release {badrel} --format='table(name.basename(),targetId,state,phases[0].deploymentJobs.verifyJob.state:label=VERIFY)'")),
-            (f"gcloud deploy rollouts list --delivery-pipeline {PIPELINE} --release {rel} --format='table(name.basename(),targetId,state,rollbackOfRollout.basename())'   # the automation's rollback",
-             lambda: gd(f"rollouts list --delivery-pipeline {PIPELINE} --release {rel} --format='table(name.basename(),targetId,state,rollbackOfRollout.basename():label=ROLLBACK_OF)'")),
-            (f"gcloud deploy automation-runs list --delivery-pipeline {PIPELINE} --format='table(ruleId,state,createTime.date(\"%H:%M\"))' --limit 3",
-             lambda: gd(f"automation-runs list --delivery-pipeline {PIPELINE} --format='table(ruleId,state,createTime.date(\"%H:%M\"))' --limit 3")),
-            ("kubectl -n dev get deploy orders-api -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"FAIL_RATE\")].value}'   # back to the previous release",
-             lambda: wsl("kubectl -n dev get deploy orders-api -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"FAIL_RATE\")].value}'; echo")),
-        ], type_delay=5)
+        await replay(page, steps8, spread=alen["bad"] * 0.7)
     await demo.scene("Bad release caught", NARRATION["bad"], s8, hold=1.0)
 
     # ---- 9 SLOs ----
     if use_cdp:
+        await console_ready(slo_tab, "/orders")
+
         async def s9():
             await demo.capture(slo_tab)
-            try:
-                await slo_tab.wait_for_selector("text=/orders", timeout=10000)
-            except Exception:
-                await slo_tab.reload(wait_until="commit")
-                try:
-                    await slo_tab.wait_for_selector("text=/orders", timeout=60000)
-                except Exception:
-                    pass
-            await asyncio.sleep(6)
         await demo.scene("SLOs", NARRATION["slo"], s9, hold=1.5)
         await demo.capture(page)
 
-    # ---- 10 postmortem ----
+    # ---- 10 postmortem (Gemini runs now; the scene replays the draft) ----
+    steps10 = await precapture([
+        ("bq ls incidents", lambda: wsl(f"bq ls --project_id={PROJECT} incidents 2>&1 | head -12")),
+        (f"python3 postmortem/postmortem.py --last 30m --title 'bad release bad{stamp} caught by verify; chaos game day'",
+         lambda: trim(wsl(f"~/venvs/p5/bin/python postmortem/postmortem.py --last 30m --title 'bad release bad{stamp} caught by verify; chaos game day' 2>&1 | head -40", timeout=300), 2200)),
+    ])
+
     async def s10():
         await demo.terminal("Learning loop: logs → BigQuery → Gemini → postmortem draft", [])
-        await live_steps(page, [
-            ("bq ls incidents", lambda: wsl(f"bq ls --project_id={PROJECT} incidents 2>&1 | head -12")),
-            (f"python3 postmortem/postmortem.py --last 30m --title 'bad release bad{stamp} caught by verify; chaos game day'",
-             lambda: trim(wsl(f"~/venvs/p5/bin/python postmortem/postmortem.py --last 30m --title 'bad release bad{stamp} caught by verify; chaos game day' 2>&1 | head -40", timeout=300), 2200)),
-        ], type_delay=5, hold=4.0)
+        await replay(page, steps10, spread=6.0, hold=4.0)
     await demo.scene("Postmortem", NARRATION["postmortem"], s10, hold=1.0)
 
     # ---- 11 wrap ----
+    steps11 = await precapture([
+        ("terraform -chdir=terraform state list | wc -l", lambda: wsl("terraform -chdir=terraform state list | wc -l")),
+        ("terraform -chdir=terraform output", lambda: wsl("terraform -chdir=terraform output -no-color")),
+        ("ls postmortems/", lambda: wsl("ls postmortems/ 2>/dev/null; kubectl delete -f chaos/ >/dev/null 2>&1; true")),
+        ("# when done: ./teardown.sh", "namespaces + chaos → terraform destroy → load-balancer leftovers → destroy again → billing audit"),
+    ])
+
     async def s11():
         await demo.terminal("Infrastructure as code + cleanup", [])
-        await live_steps(page, [
-            ("terraform -chdir=terraform state list | wc -l", lambda: wsl("terraform -chdir=terraform state list | wc -l")),
-            ("terraform -chdir=terraform output", lambda: wsl("terraform -chdir=terraform output -no-color")),
-            ("ls postmortems/", lambda: wsl("ls postmortems/ 2>/dev/null; kubectl delete -f chaos/ >/dev/null 2>&1; true")),
-            ("# when done: ./teardown.sh", "namespaces + chaos → terraform destroy → load-balancer leftovers → destroy again → billing audit"),
-        ], type_delay=6)
+        await replay(page, steps11, spread=alen["wrap"] * 0.5)
     await demo.scene("Wrap-up", NARRATION["wrap"], s11, hold=1.5)
 
     await demo.finish("demo")
