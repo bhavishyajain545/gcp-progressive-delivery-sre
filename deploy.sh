@@ -63,7 +63,7 @@ NAME="$(build_sign_release v1 0 | tail -1)"
 echo "== 5/6 wait for the rollout to reach prod (dev → staging → prod canary → stable)"
 for _ in $(seq 1 90); do
   STATE="$(gcloud deploy rollouts list --project "$PROJECT_ID" --region "$REGION" --delivery-pipeline "$(tf_out pipeline)" --release "$NAME" \
-    --format='value(targetId,state)' 2>/dev/null | tr '\n' ' ')"
+    --format='value(targetId,state)' 2>/dev/null | tr '\n\t' '  ')"  # gcloud separates the two values with a TAB; the match below expects a space
   echo "   $STATE"
   [[ "$STATE" == *"prod SUCCEEDED"* ]] && break
   [[ "$STATE" == *"FAILED"* ]] && { echo "a rollout failed; see: gcloud deploy rollouts list ..."; break; }

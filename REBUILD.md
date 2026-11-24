@@ -107,6 +107,15 @@ ffmpeg. `python -u demo/scenes.py` creates a real bad release and waits for the 
 KMS key rings cannot be deleted; the key versions are destroyed and cost nothing. The WIF pool is soft-deleted
 for 30 days. The empty project costs nothing.
 
+### Rebuilding after a teardown
+
+Three resources survive the destroy and make the next `terraform apply` fail with 409: the KMS key ring/key,
+the Workload Identity pool and provider, and the Firestore database. Run `./reimport.sh` first: it restores and
+re-enables the scheduled-for-destruction key version (earlier attestations stay valid), undeletes the WIF pool
+and provider, and imports all five into the state. Then `./deploy.sh` runs clean. Also check `authorized_cidrs`
+in `terraform.tfvars` against your current public IP (`curl https://api.ipify.org`): a CGNAT ISP moves you
+between /16 pools and `kubectl` then times out against the control plane.
+
 ## Gotchas met while building
 
 - Cloud Deploy's Gateway API canary relabels the canary pods (`app: orders-api-canary`). A NetworkPolicy or
