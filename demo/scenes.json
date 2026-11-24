@@ -2,56 +2,56 @@
   {
     "title": "Architecture",
     "start": 0.3,
-    "end": 53.65
+    "end": 53.64
   },
   {
     "title": "Binary Authorization",
-    "start": 54.05,
-    "end": 91.62
+    "start": 54.24,
+    "end": 83.02
   },
   {
     "title": "Game day 1 pod-kill",
-    "start": 92.07,
-    "end": 119.9
+    "start": 83.62,
+    "end": 102.65
   },
   {
     "title": "Release",
-    "start": 120.33,
-    "end": 141.24
+    "start": 103.25,
+    "end": 124.16
   },
   {
     "title": "Pipeline",
-    "start": 141.66,
-    "end": 172.39
+    "start": 124.76,
+    "end": 147.2
   },
   {
     "title": "Prod canary",
-    "start": 172.99,
-    "end": 207.44
+    "start": 147.8,
+    "end": 173.45
   },
   {
     "title": "Game day 2 network delay",
-    "start": 207.89,
-    "end": 245.32
+    "start": 174.05,
+    "end": 203.18
   },
   {
     "title": "Bad release caught",
-    "start": 245.92,
-    "end": 283.96
+    "start": 203.78,
+    "end": 235.73
   },
   {
     "title": "SLOs",
-    "start": 284.4,
-    "end": 305.08
+    "start": 236.33,
+    "end": 257.02
   },
   {
     "title": "Postmortem",
-    "start": 305.96,
-    "end": 348.85
+    "start": 257.62,
+    "end": 291.73
   },
   {
     "title": "Wrap-up",
-    "start": 349.31,
-    "end": 380.88
+    "start": 292.33,
+    "end": 318.12
   }
 ]

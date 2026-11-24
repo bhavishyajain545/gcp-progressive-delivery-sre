@@ -125,6 +125,16 @@ async def console_ready(tab, text: str, reload: bool = True) -> None:
         print(f"  ! console tab not ready ({text}): {type(exc).__name__}")
 
 
+def retry_nonempty(producer, tries: int = 3) -> str:
+    """A WSL call occasionally returns nothing while another WSL process (a build) is running; retry."""
+    out = ""
+    for _ in range(tries):
+        out = producer()
+        if out.strip():
+            return out
+    return out or "(no output)"
+
+
 def trim(s: str, n: int = 1500) -> str:
     return s if len(s) <= n else s[:n] + "\n…"
 
@@ -255,8 +265,9 @@ async def main() -> None:
         (f"gcloud container clusters describe delivery --zone {ZONE} --format='value(binaryAuthorization.evaluationMode,privateClusterConfig.enablePrivateNodes,workloadIdentityConfig.workloadPool)'", cluster),
     ])
 
+    await demo.terminal("Guardrail 1: Binary Authorization admits attested digests only", [])  # before the scene: a slow about:blank hop must not eat narration time
+    await asyncio.sleep(0.8)
     async def s2():
-        await demo.terminal("Guardrail 1: Binary Authorization admits attested digests only", [])
         await replay(page, steps2, spread=alen["binauthz"] * 0.6)
     await demo.scene("Binary Authorization", NARRATION["binauthz"], s2, hold=1.0)
 
@@ -270,8 +281,9 @@ async def main() -> None:
         ("kubectl -n prod get pdb,hpa", lambda: wsl("kubectl -n prod get pdb,hpa; kubectl delete -f chaos/pod-kill.yaml >/dev/null 2>&1")),
     ])
 
+    await demo.terminal("Game day 1: Chaos Mesh pod-kill on prod", [])  # before the scene: a slow about:blank hop must not eat narration time
+    await asyncio.sleep(0.8)
     async def s3():
-        await demo.terminal("Game day 1: Chaos Mesh pod-kill on prod", [])
         await replay(page, steps3, spread=alen["podkill"] * 0.65)
     await demo.scene("Game day 1 pod-kill", NARRATION["podkill"], s3, hold=1.0)
 
@@ -288,8 +300,9 @@ async def main() -> None:
          lambda: gd(f"releases describe {rel} --delivery-pipeline {PIPELINE} --format='value(name.basename(),buildArtifacts[0].image,deployParameters,renderState)'")),
     ])
 
+    await demo.terminal("A release: build → sign → attest → Cloud Deploy", [])  # before the scene: a slow about:blank hop must not eat narration time
+    await asyncio.sleep(0.8)
     async def s4():
-        await demo.terminal("A release: build → sign → attest → Cloud Deploy", [])
         await replay(page, steps4, spread=alen["release"] * 0.5)
     await demo.scene("Release", NARRATION["release"], s4, hold=1.0)
 
@@ -322,8 +335,9 @@ async def main() -> None:
         ("kubectl -n prod get jobs,pods -l app=verify   # the verify Job Cloud Deploy runs in-cluster", lambda: wsl("kubectl -n prod get jobs,pods -l app=verify 2>&1 | tail -4")),
     ])
 
+    await demo.terminal("Prod canary: 25% → 50% → 100% on Gateway API weights", [])  # before the scene: a slow about:blank hop must not eat narration time
+    await asyncio.sleep(0.8)
     async def s6():
-        await demo.terminal("Prod canary: 25% → 50% → 100% on Gateway API weights", [])
         await replay(page, steps6, spread=alen["canary"] * 0.6)
     await demo.scene("Prod canary", NARRATION["canary"], s6, hold=1.0)
 
@@ -340,14 +354,15 @@ async def main() -> None:
     steps7 = await precapture([
         ("kubectl apply -f chaos/network-delay.yaml", lambda: wsl("kubectl apply -f chaos/network-delay.yaml")),
         ("for i in $(seq 1 10); do curl -s -o /dev/null -w '%{http_code} %{time_total}s\\n' -X POST $GW/orders -d '{\"item\":\"slow\",\"qty\":1}'; done",
-         lambda: wsl(f"sleep 5; for i in $(seq 1 10); do curl -s --max-time 10 -o /dev/null -w '%{{http_code}} %{{time_total}}s\\n' -X POST {api}/orders -H 'content-type: application/json' -d '{{\"item\":\"slow-'$i'\",\"qty\":1}}'; done", timeout=200)),
+         lambda: retry_nonempty(lambda: wsl(f"sleep 5; for i in $(seq 1 10); do curl -s --max-time 10 -o /dev/null -w '%{{http_code}} %{{time_total}}s\\n' -X POST {api}/orders -H 'content-type: application/json' -d '{{\"item\":\"slow-'$i'\",\"qty\":1}}'; done", timeout=200))),
     ])
     if use_cdp:
         await asyncio.sleep(45)  # let the slow requests reach the dashboard's 1-minute points
         await console_ready(dash_tab, "Requests/s")
 
+    await demo.terminal("Game day 2: +300 ms egress delay on prod (NetworkChaos)", [])  # before the scene: a slow about:blank hop must not eat narration time
+    await asyncio.sleep(0.8)
     async def s7():
-        await demo.terminal("Game day 2: +300 ms egress delay on prod (NetworkChaos)", [])
         await replay(page, steps7, spread=8.0, hold=4.0)
         if use_cdp:
             await demo.capture(dash_tab)
@@ -379,8 +394,9 @@ async def main() -> None:
          lambda: wsl("kubectl -n dev get deploy orders-api -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"FAIL_RATE\")].value}'; echo")),
     ])
 
+    await demo.terminal("The bad release: FAIL_RATE=0.5, caught by verify, rolled back", [])  # before the scene: a slow about:blank hop must not eat narration time
+    await asyncio.sleep(0.8)
     async def s8():
-        await demo.terminal("The bad release: FAIL_RATE=0.5, caught by verify, rolled back", [])
         await replay(page, steps8, spread=alen["bad"] * 0.7)
     await demo.scene("Bad release caught", NARRATION["bad"], s8, hold=1.0)
 
@@ -400,8 +416,9 @@ async def main() -> None:
          lambda: trim(wsl(f"~/venvs/p5/bin/python postmortem/postmortem.py --last 30m --title 'bad release bad{stamp} caught by verify; chaos game day' 2>&1 | head -40", timeout=300), 2200)),
     ])
 
+    await demo.terminal("Learning loop: logs → BigQuery → Gemini → postmortem draft", [])  # before the scene: a slow about:blank hop must not eat narration time
+    await asyncio.sleep(0.8)
     async def s10():
-        await demo.terminal("Learning loop: logs → BigQuery → Gemini → postmortem draft", [])
         await replay(page, steps10, spread=6.0, hold=4.0)
     await demo.scene("Postmortem", NARRATION["postmortem"], s10, hold=1.0)
 
@@ -413,8 +430,9 @@ async def main() -> None:
         ("# when done: ./teardown.sh", "namespaces + chaos → terraform destroy → load-balancer leftovers → destroy again → billing audit"),
     ])
 
+    await demo.terminal("Infrastructure as code + cleanup", [])  # before the scene: a slow about:blank hop must not eat narration time
+    await asyncio.sleep(0.8)
     async def s11():
-        await demo.terminal("Infrastructure as code + cleanup", [])
         await replay(page, steps11, spread=alen["wrap"] * 0.5)
     await demo.scene("Wrap-up", NARRATION["wrap"], s11, hold=1.5)
 
